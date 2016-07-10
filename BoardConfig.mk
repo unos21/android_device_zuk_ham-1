@@ -50,9 +50,6 @@ TARGET_KERNEL_SOURCE := kernel/cyanogen/msm8974
 TARGET_KERNEL_CONFIG := chroma_defconfig
 TARGET_KERNEL_CROSS_COMPILE_PREFIX := arm-linux-androideabi-
 
-# ANT+
-BOARD_ANT_WIRELESS_DEVICE := "vfs-prerelease"
-
 # Enable DIAG on debug builds
 ifneq ($(TARGET_BUILD_VARIANT),user)
 TARGET_KERNEL_ADDITIONAL_CONFIG:= cyanogenmod_debug_config
@@ -132,11 +129,8 @@ WIFI_DRIVER_FW_PATH_STA          := "sta"
 WIFI_DRIVER_FW_PATH_AP           := "ap"
 TARGET_USES_WCNSS_CTRL           := true
 TARGET_USES_QCOM_WCNSS_QMI       := true
+TARGET_PROVIDES_WCNSS_QMI        := true
 TARGET_USES_WCNSS_MAC_ADDR_REV   := true
-
-# Wifi - EAP-SIM
-CONFIG_EAP_PROXY                 := qmi
-CONFIG_EAP_PROXY_DUAL_SIM        := true
 
 # Lights
 TARGET_PROVIDES_LIBLIGHT := true
@@ -149,7 +143,7 @@ TARGET_GPS_HAL_PATH := device/zuk/ham/gps
 TARGET_PROVIDES_GPS_LOC_API := true
 
 # Radio
-TARGET_RIL_VARIANT := caf
+#TARGET_RIL_VARIANT := caf
 
 # Recovery
 TARGET_RECOVERY_FSTAB := device/zuk/ham/rootdir/etc/fstab.qcom
