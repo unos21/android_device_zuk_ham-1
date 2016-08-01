@@ -58,9 +58,6 @@ ifneq ($(TARGET_BUILD_VARIANT),user)
 TARGET_KERNEL_ADDITIONAL_CONFIG:= cyanogenmod_debug_config
 endif
 
-# DT2W
-TARGET_TAP_TO_WAKE_NODE := "/sys/devices/virtual/touch/tp_dev/gesture_on"
-
 # QCOM Power (required for DT2W)
 TARGET_POWERHAL_VARIANT := qcom
 
@@ -85,9 +82,6 @@ BOARD_BLUETOOTH_BDROID_BUILDCFG_INCLUDE_DIR := device/zuk/ham/bluetooth
 TARGET_USE_VENDOR_CAMERA_EXT := true
 USE_DEVICE_SPECIFIC_CAMERA := true
 TARGET_USE_COMPAT_GRALLOC_ALIGN := true
-
-# CM Hardware
-BOARD_HARDWARE_CLASS += device/zuk/ham/cmhw
 
 # Filesystem
 BOARD_BOOTIMAGE_PARTITION_SIZE     := 20971520
