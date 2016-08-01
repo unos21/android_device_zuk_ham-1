@@ -78,8 +78,7 @@ PRODUCT_PACKAGES += \
 
 # Camera
 PRODUCT_PACKAGES += \
-    camera.msm8974 \
-    Snap
+    camera.msm8974 
 
 # Charger
 PRODUCT_PACKAGES += \

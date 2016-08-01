@@ -20,6 +20,9 @@ BOARD_VENDOR := zuk
 #Include path
 TARGET_SPECIFIC_HEADER_PATH += device/zuk/ham/include
 
+# include additional build utilities
+include device/qcom/common/utils.mk
+
 # Bootloader
 TARGET_BOOTLOADER_BOARD_NAME := MSM8974
 TARGET_NO_BOOTLOADER := true
@@ -61,9 +64,10 @@ endif
 # QCOM Power (required for DT2W)
 TARGET_POWERHAL_VARIANT := qcom
 
-# QCOM
-BOARD_USES_QCOM_HARDWARE := true
-BOARD_USES_CYANOGEN_HARDWARE := true
+# Qualcomm support
+TARGET_USES_QCOM_BSP := true
+TARGET_COMPILE_WITH_MSM_KERNEL := true
+TARGET_USES_AOSP := false
 
 # Audio
 BOARD_USES_ALSA_AUDIO := true
@@ -154,6 +158,9 @@ TARGET_RELEASETOOLS_EXTENSIONS := device/zuk/ham
 
 # ENCRYPTION
 TARGET_HW_DISK_ENCRYPTION := true
+
+# CMHW
+TARGET_TAP_TO_WAKE_NODE := "/sys/devices/virtual/input/lge_touch/tap_to_wake"
 
 # Enable dexpreopt to reduce first boot time
 ifeq ($(HOST_OS),linux)

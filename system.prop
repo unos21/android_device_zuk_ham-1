@@ -70,3 +70,4 @@ ro.qualcomm.perf.cores_online=2
 ro.vendor.extension_library=libqti-perfd-client.so
 ro.telephony.call_ring.multiple=0
 persist.camera.4k2k.enable=1
+persist.camera.feature.restart=true
