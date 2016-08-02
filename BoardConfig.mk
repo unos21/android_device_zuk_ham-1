@@ -19,9 +19,9 @@ BOARD_VENDOR := zuk
 
 #Include path
 TARGET_SPECIFIC_HEADER_PATH += device/zuk/ham/include
-
-# include additional build utilities
-include device/qcom/common/utils.mk
+include device/qcom/common/BoardConfigCommon.mk
+-include $(QCPATH)/common/msm8974/BoardConfigVendor.mk
+-include vendor/zuk/ham/BoardConfigVendor.mk
 
 # Bootloader
 TARGET_BOOTLOADER_BOARD_NAME := MSM8974
@@ -53,24 +53,10 @@ TARGET_KERNEL_SOURCE := kernel/cyanogen/msm8974
 TARGET_KERNEL_CONFIG := chroma_defconfig
 TARGET_KERNEL_CROSS_COMPILE_PREFIX := arm-linux-androideabi-
 
-# ANT+
-BOARD_ANT_WIRELESS_DEVICE := "vfs-prerelease"
-
-# Enable DIAG on debug builds
-ifneq ($(TARGET_BUILD_VARIANT),user)
-TARGET_KERNEL_ADDITIONAL_CONFIG:= cyanogenmod_debug_config
-endif
-
 # QCOM Power (required for DT2W)
 TARGET_POWERHAL_VARIANT := qcom
 
-# Qualcomm support
-TARGET_USES_QCOM_BSP := true
-TARGET_COMPILE_WITH_MSM_KERNEL := true
-TARGET_USES_AOSP := false
-
 # Audio
-BOARD_USES_ALSA_AUDIO := true
 AUDIO_FEATURE_ENABLED_MULTI_VOICE_SESSIONS := true
 AUDIO_FEATURE_ENABLED_HWDEP_CAL := true
 AUDIO_FEATURE_ENABLED_LOW_LATENCY_CAPTURE := true
@@ -83,9 +69,8 @@ BLUETOOTH_HCI_USE_MCT := true
 BOARD_BLUETOOTH_BDROID_BUILDCFG_INCLUDE_DIR := device/zuk/ham/bluetooth
 
 # Camera
-TARGET_USE_VENDOR_CAMERA_EXT := true
 USE_DEVICE_SPECIFIC_CAMERA := true
-TARGET_USE_COMPAT_GRALLOC_ALIGN := true
+
 
 # Filesystem
 BOARD_BOOTIMAGE_PARTITION_SIZE     := 20971520
@@ -108,6 +93,7 @@ BOARD_FLASH_BLOCK_SIZE := 131072
 BOARD_VENDOR_QCOM_LOC_PDK_FEATURE_SET := true
 USE_DEVICE_SPECIFIC_GPS := true
 USE_DEVICE_SPECIFIC_LOC_API := true
+TARGET_GPS_HAL_PATH := device/zuk/ham/gps
 
 # Graphics
 MAX_EGL_CACHE_KEY_SIZE := 12*1024
@@ -134,19 +120,11 @@ TARGET_USES_QCOM_WCNSS_QMI       := true
 TARGET_PROVIDES_WCNSS_QMI        := true
 TARGET_USES_WCNSS_MAC_ADDR_REV   := true
 
-# Wifi - EAP-SIM
-CONFIG_EAP_PROXY                 := qmi
-CONFIG_EAP_PROXY_DUAL_SIM        := true
-
 # Lights
 TARGET_PROVIDES_LIBLIGHT := true
 
 # RPC 
 TARGET_NO_RPC := true
-
-# GPS
-TARGET_GPS_HAL_PATH := device/zuk/ham/gps
-TARGET_PROVIDES_GPS_LOC_API := true
 
 # Radio
 TARGET_RIL_VARIANT := caf
@@ -163,27 +141,8 @@ TARGET_HW_DISK_ENCRYPTION := true
 # CMHW
 TARGET_TAP_TO_WAKE_NODE := "/sys/devices/virtual/input/lge_touch/tap_to_wake"
 
-# Enable dexpreopt to reduce first boot time
-ifeq ($(HOST_OS),linux)
-  ifeq ($(call match-word-in-list,$(TARGET_BUILD_VARIANT),user),true)
-    ifeq ($(WITH_DEXPREOPT),)
-      WITH_DEXPREOPT := true
-	  WITH_DEXPREOPT_COMP := false
-    endif
-  endif
-endif
-
-# inherit from QC proprietary
-ifneq ($(QCPATH),)
--include $(QCPATH)/common/msm8974/BoardConfigVendor.mk
-endif
-
-BOARD_USES_QCNE := true
-
-# QCNE
-ifeq ($(BOARD_USES_QCNE),true)
-TARGET_LDPRELOAD := libNimsWrap.so
-endif
+# Control flag between KM versions
+TARGET_HW_KEYMASTER_V03 := true
 
 # TWRP
 DEVICE_RESOLUTION := 1080x1920
@@ -199,9 +158,24 @@ TARGET_USERIMAGES_USE_F2FS := true
 
 PRODUCT_COPY_FILES += device/zuk/ham/twrp.fstab:recovery/root/etc/twrp.fstab
 
+# Enable dexpreopt to reduce first boot time
+ifeq ($(HOST_OS),linux)
+  ifeq ($(call match-word-in-list,$(TARGET_BUILD_VARIANT),user),true)
+    ifeq ($(WITH_DEXPREOPT),)
+      WITH_DEXPREOPT := true
+	  WITH_DEXPREOPT_COMP := false
+    endif
+  endif
+endif
+
+BOARD_USES_QCNE := true
+
+# QCNE
+ifeq ($(BOARD_USES_QCNE),true)
+TARGET_LDPRELOAD := libNimsWrap.so
+endif
+
 # SELinux policies
 # qcom sepolicy
 BOARD_SEPOLICY_DIRS += \
     device/zuk/ham/sepolicy
-
--include vendor/zuk/ham/BoardConfigVendor.mk

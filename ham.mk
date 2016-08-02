@@ -65,7 +65,6 @@ PRODUCT_COPY_FILES += \
 PRODUCT_PACKAGES += \
     audiod \
     audio.a2dp.default \
-    audio_amplifier.msm8974 \
     audio_policy.msm8974 \
     audio.primary.msm8974 \
     audio.r_submix.default \
@@ -75,10 +74,6 @@ PRODUCT_PACKAGES += \
     libqcomvoiceprocessing \
     libtfa98xx \
     tinymix
-
-# Camera
-PRODUCT_PACKAGES += \
-    camera.msm8974 
 
 # Charger
 PRODUCT_PACKAGES += \
@@ -199,15 +194,8 @@ PRODUCT_PACKAGES += \
     libtinyxml \
     libxml2
 
-# ANT+
-PRODUCT_PACKAGES += \
-    AntHalService \
-    com.dsi.ant.antradio_library \
-    libantradio
-
 # Permissions
 PRODUCT_COPY_FILES += \
-    external/ant-wireless/antradio-library/com.dsi.ant.antradio_library.xml:system/etc/permissions/com.dsi.ant.antradio_library.xml \
     frameworks/native/data/etc/handheld_core_hardware.xml:system/etc/permissions/handheld_core_hardware.xml \
     frameworks/native/data/etc/android.hardware.audio.low_latency.xml:system/etc/permissions/android.hardware.audio.low_latency.xml \
     frameworks/native/data/etc/android.hardware.bluetooth_le.xml:system/etc/permissions/android.hardware.bluetooth_le.xml \
