@@ -53,7 +53,7 @@ TARGET_KERNEL_SOURCE := kernel/cyanogen/msm8974
 TARGET_KERNEL_CONFIG := chroma_defconfig
 TARGET_KERNEL_CROSS_COMPILE_PREFIX := arm-linux-androideabi-
 
-# QCOM Power (required for DT2W)
+# QCOM Power 
 TARGET_POWERHAL_VARIANT := qcom
 
 # Audio
@@ -69,8 +69,9 @@ BLUETOOTH_HCI_USE_MCT := true
 BOARD_BLUETOOTH_BDROID_BUILDCFG_INCLUDE_DIR := device/zuk/ham/bluetooth
 
 # Camera
+TARGET_USE_VENDOR_CAMERA_EXT := true
 USE_DEVICE_SPECIFIC_CAMERA := true
-
+TARGET_USE_COMPAT_GRALLOC_ALIGN := true
 
 # Filesystem
 BOARD_BOOTIMAGE_PARTITION_SIZE     := 20971520
@@ -117,6 +118,7 @@ WIFI_DRIVER_FW_PATH_STA          := "sta"
 WIFI_DRIVER_FW_PATH_AP           := "ap"
 TARGET_USES_WCNSS_CTRL           := true
 TARGET_USES_QCOM_WCNSS_QMI       := true
+TARGET_PROVIDES_WCNSS_QMI        := true
 TARGET_USES_WCNSS_MAC_ADDR_REV   := true
 
 # Lights
@@ -137,8 +139,8 @@ TARGET_RELEASETOOLS_EXTENSIONS := device/zuk/ham
 # ENCRYPTION
 TARGET_HW_DISK_ENCRYPTION := true
 
-# CMHW
-TARGET_TAP_TO_WAKE_NODE := "/sys/devices/virtual/input/lge_touch/tap_to_wake"
+# DTW
+TARGET_TAP_TO_WAKE_NODE := "/sys/devices/virtual/touch/tp_dev/gesture_on"
 
 # Control flag between KM versions
 TARGET_HW_KEYMASTER_V03 := true
