@@ -50,6 +50,7 @@ av.streaming.offload.enable=false
 use.voice.path.for.pcm.voip=true
 audio.offload.multiple.enabled=false
 media.aac_51_output_enabled=true
+media.stagefright.codecremote=false
 audio.offload.pcm.16bit.enable=true
 audio.offload.pcm.24bit.enable=true
 audio.deep_buffer.media=true
