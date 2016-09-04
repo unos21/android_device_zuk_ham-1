@@ -136,7 +136,7 @@ TARGET_USES_QCOM_WCNSS_QMI       := true
 TARGET_USES_WCNSS_MAC_ADDR_REV   := true
 
 # Wifi - EAP-SIM
-CONFIG_EAP_PROXY                 := qmi
+#CONFIG_EAP_PROXY                 := qmi
 CONFIG_EAP_PROXY_DUAL_SIM        := true
 
 # Lights
@@ -159,7 +159,8 @@ TARGET_RECOVERY_FSTAB := device/zuk/ham/rootdir/etc/fstab.qcom
 TARGET_RELEASETOOLS_EXTENSIONS := device/zuk/ham
 
 # ENCRYPTION
-TARGET_HW_DISK_ENCRYPTION := true
+#TARGET_HW_DISK_ENCRYPTION := true
+#TARGET_CRYPTFS_HW_PATH := device/qcom/common/cryptfs_hw
 
 # Enable dexpreopt to reduce first boot time
 ifeq ($(HOST_OS),linux)
@@ -198,7 +199,7 @@ PRODUCT_COPY_FILES += device/zuk/ham/twrp.fstab:recovery/root/etc/twrp.fstab
 
 # SELinux policies
 # qcom sepolicy
-include device/qcom/sepolicy/sepolicy.mk
+#include device/qcom/sepolicy/sepolicy.mk
 
 BOARD_SEPOLICY_DIRS += \
     device/zuk/ham/sepolicy
