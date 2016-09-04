@@ -25,7 +25,7 @@ ADD_RADIO_FILES ?= true
 TARGET_RELEASETOOLS_EXTENSIONS := device/zuk/ham
 
 # overlays
-DEVICE_PACKAGE_OVERLAYS += $(LOCAL_PATH)/overlay vendor/extra/overlays/phone-1080p
+DEVICE_PACKAGE_OVERLAYS += $(LOCAL_PATH)/overlay 
 
 # Boot animation
 TARGET_SCREEN_HEIGHT := 1920
@@ -150,12 +150,8 @@ PRODUCT_COPY_FILES += \
     libOmxVdec \
     libOmxVdecHevc \
     libOmxVenc \
-    libstagefrighthw \
-    qcmediaplayer
-
-PRODUCT_BOOT_JARS += \
-    qcmediaplayer
-
+    libstagefrighthw
+	
 # Power
 PRODUCT_PACKAGES += \
     power.msm8974
@@ -208,15 +204,8 @@ PRODUCT_PACKAGES += \
     libtinyxml \
     libxml2
 
-# ANT+
-PRODUCT_PACKAGES += \
-    AntHalService \
-    com.dsi.ant.antradio_library \
-    libantradio
-
 # Permissions
 PRODUCT_COPY_FILES += \
-    external/ant-wireless/antradio-library/com.dsi.ant.antradio_library.xml:system/etc/permissions/com.dsi.ant.antradio_library.xml \
     frameworks/native/data/etc/handheld_core_hardware.xml:system/etc/permissions/handheld_core_hardware.xml \
     frameworks/native/data/etc/android.hardware.audio.low_latency.xml:system/etc/permissions/android.hardware.audio.low_latency.xml \
     frameworks/native/data/etc/android.hardware.bluetooth_le.xml:system/etc/permissions/android.hardware.bluetooth_le.xml \
