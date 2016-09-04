@@ -153,8 +153,8 @@ TARGET_RECOVERY_FSTAB := device/zuk/ham/rootdir/etc/fstab.qcom
 TARGET_RELEASETOOLS_EXTENSIONS := device/zuk/ham
 
 # ENCRYPTION
-TARGET_HW_DISK_ENCRYPTION := true
-TARGET_CRYPTFS_HW_PATH := device/qcom/common/cryptfs_hw
+#TARGET_HW_DISK_ENCRYPTION := true
+#TARGET_CRYPTFS_HW_PATH := device/qcom/common/cryptfs_hw
 
 # Enable dexpreopt to reduce first boot time
 ifeq ($(HOST_OS),linux)
