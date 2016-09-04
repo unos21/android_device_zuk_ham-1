@@ -45,7 +45,7 @@ BOARD_MKBOOTIMG_ARGS := --ramdisk_offset 0x02000000 --tags_offset 0x01e00000
 BOARD_DTBTOOL_ARGS := -2
 BOARD_KERNEL_SEPARATED_DT := true
 TARGET_KERNEL_ARCH := arm
-BOARD_KERNEL_CMDLINE := console=tty60,115200,n8 androidboot.hardware=qcom user_debug=31 msm_rtb.filter=0x3b7 ehci-hcd.park=3 androidboot.bootdevice=msm_sdcc.1 vmalloc=480M androidboot.selinux=disabled
+BOARD_KERNEL_CMDLINE := console=tty60,115200,n8 androidboot.hardware=qcom user_debug=31 msm_rtb.filter=0x3b7 ehci-hcd.park=3 androidboot.bootdevice=msm_sdcc.1 vmalloc=480M androidboot.selinux=permissive
 TARGET_KERNEL_SOURCE := kernel/cyanogen/msm8974
 TARGET_KERNEL_CONFIG := chroma_defconfig
 TARGET_KERNEL_CROSS_COMPILE_PREFIX := arm-linux-androideabi-
@@ -153,8 +153,8 @@ TARGET_RECOVERY_FSTAB := device/zuk/ham/rootdir/etc/fstab.qcom
 TARGET_RELEASETOOLS_EXTENSIONS := device/zuk/ham
 
 # ENCRYPTION
-#TARGET_HW_DISK_ENCRYPTION := true
-#TARGET_CRYPTFS_HW_PATH := device/qcom/common/cryptfs_hw
+TARGET_HW_DISK_ENCRYPTION := true
+TARGET_CRYPTFS_HW_PATH := device/qcom/common/cryptfs_hw
 
 # Enable dexpreopt to reduce first boot time
 ifeq ($(HOST_OS),linux)
@@ -193,7 +193,7 @@ PRODUCT_COPY_FILES += device/zuk/ham/twrp.fstab:recovery/root/etc/twrp.fstab
 
 # SELinux policies
 # qcom sepolicy
-#include device/qcom/sepolicy/sepolicy.mk
+include device/qcom/sepolicy/sepolicy.mk
 
 #BOARD_SEPOLICY_DIRS += \
 #   device/zuk/ham/sepolicy
