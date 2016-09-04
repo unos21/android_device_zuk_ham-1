@@ -156,6 +156,29 @@ PRODUCT_COPY_FILES += \
 PRODUCT_PACKAGES += \
     power.msm8974
 
+# Proprietary blobs, not automatically included in AOSP builds
+PRODUCT_PACKAGES += \
+    qcrilmsgtunnel \
+    PPPreference \
+    QuickBoot \
+    shutdownlistener \
+    TimeService
+
+PRODUCT_PACKAGES += \
+    liblisten \
+    libmm-abl \
+    libtime_genoff \
+    libTimeService \
+    libqmi \
+    libmdmdetect \
+    libqmiservices \
+    libidl \
+    libqcci_legacy \
+    libdiag \
+    libqmi_client_qmux \
+    libdsutils \
+    libwpa_qmi_eap_proxy
+	
 # Keylayouts
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/keylayout/gpio-keys.kl:system/usr/keylayout/gpio-keys.kl \
