@@ -195,7 +195,7 @@ PRODUCT_COPY_FILES += device/zuk/ham/twrp.fstab:recovery/root/etc/twrp.fstab
 # qcom sepolicy
 #include device/qcom/sepolicy/sepolicy.mk
 
-BOARD_SEPOLICY_DIRS += \
-    device/zuk/ham/sepolicy
+#BOARD_SEPOLICY_DIRS += \
+#   device/zuk/ham/sepolicy
 
 -include vendor/zuk/ham/BoardConfigVendor.mk
