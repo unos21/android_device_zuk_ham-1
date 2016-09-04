@@ -156,6 +156,9 @@ TARGET_RELEASETOOLS_EXTENSIONS := device/zuk/ham
 #TARGET_HW_DISK_ENCRYPTION := true
 #TARGET_CRYPTFS_HW_PATH := device/qcom/common/cryptfs_hw
 
+# Android native DT2W
+TARGET_TAP_TO_WAKE_NODE := "/proc/touchpanel/double_tap_enable"
+
 # Enable dexpreopt to reduce first boot time
 ifeq ($(HOST_OS),linux)
   ifeq ($(call match-word-in-list,$(TARGET_BUILD_VARIANT),user),true)
