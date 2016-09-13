@@ -62,7 +62,6 @@ PRODUCT_COPY_FILES += \
 PRODUCT_PACKAGES += \
     audiod \
     audio.a2dp.default \
-    audio_amplifier.msm8974 \
     audio_policy.msm8974 \
     audio.primary.msm8974 \
     audio.r_submix.default \
@@ -77,11 +76,6 @@ PRODUCT_PACKAGES += \
 PRODUCT_PROPERTY_OVERRIDES += \
     ro.product.first_api_level=22
 
-# Camera
-PRODUCT_PACKAGES += \
-    camera.msm8974 \
-    Snap
-
 # Charger
 PRODUCT_PACKAGES += \
     charger_res_images
@@ -93,10 +87,6 @@ PRODUCT_DEFAULT_PROPERTY_OVERRIDES += \
 # Fingerprint
 PRODUCT_PACKAGES += \
     fingerprintd
-	
-# Gello
-PRODUCT_PACKAGES += \
-    Gello
 
 # Graphics
 PRODUCT_PACKAGES += \
@@ -135,10 +125,9 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/configs/media_profiles.xml:system/etc/media_profiles.xml
 
 # Media
- PRODUCT_PACKAGES += \
+PRODUCT_PACKAGES += \
     libc2dcolorconvert \
     libdivxdrmdecrypt \
-    libdashplayer \
     libOmxAacEnc \
     libOmxAmrEnc \
     libOmxCore \
@@ -203,7 +192,6 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/wifi/WCNSS_qcom_wlan_nv.bin:system/etc/firmware/wlan/prima/WCNSS_qcom_wlan_nv.bin
 
 PRODUCT_PACKAGES += \
-    dhcpcd.conf \
     libwpa_client \
     hostapd \
     wpa_supplicant \

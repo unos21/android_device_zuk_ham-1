@@ -50,7 +50,7 @@ TARGET_KERNEL_SOURCE := kernel/cyanogen/msm8974
 TARGET_KERNEL_CONFIG := cyanogenmod_k9_defconfig
 TARGET_KERNEL_CROSS_COMPILE_PREFIX := arm-linux-androideabi-
 
-# QCOM Power (required for DT2W)
+# QCOM Power 
 TARGET_POWERHAL_VARIANT := qcom
 
 # QCOM
@@ -139,13 +139,6 @@ TARGET_RIL_VARIANT := caf
 # Recovery
 TARGET_RECOVERY_FSTAB := device/zuk/ham/rootdir/etc/fstab.qcom
 
-# Releasetools
-TARGET_RELEASETOOLS_EXTENSIONS := device/zuk/ham
-
-# ENCRYPTION
-TARGET_HW_DISK_ENCRYPTION := true
-TARGET_CRYPTFS_HW_PATH := device/qcom/common/cryptfs_hw
-
 # Android native DT2W
 TARGET_TAP_TO_WAKE_NODE := "/proc/touchpanel/double_tap_enable"
 
@@ -169,20 +162,6 @@ BOARD_USES_QCNE := true
 ifeq ($(BOARD_USES_QCNE),true)
 TARGET_LDPRELOAD := libNimsWrap.so
 endif
-
-# TWRP
-DEVICE_RESOLUTION := 1080x1920
-RECOVERY_GRAPHICS_USE_LINELENGTH := true
-RECOVERY_SDCARD_ON_DATA := true
-BOARD_HAS_NO_REAL_SDCARD := true
-TW_TARGET_USES_QCOM_BSP := true
-TW_NO_USB_STORAGE := true
-TW_INCLUDE_CRYPTO := true
-BOARD_SUPPRESS_SECURE_ERASE := true
-TARGET_RECOVERY_PIXEL_FORMAT := "RGB_565"
-TARGET_USERIMAGES_USE_F2FS := true
-
-PRODUCT_COPY_FILES += device/zuk/ham/twrp.fstab:recovery/root/etc/twrp.fstab
 
 # SELinux policies
 # qcom sepolicy
