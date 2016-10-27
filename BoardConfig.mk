@@ -83,8 +83,12 @@ TARGET_DUMMY_RECOVERY_PATCH := true
 # DT2W
 TARGET_TAP_TO_WAKE_NODE := "/sys/devices/virtual/touch/tp_dev/gesture_on"
 
-# ENCRYPTION
+#Enable Legacy blobs
+TARGET_NEEDS_TEXT_RELOCATIONS := true
+
+# Encryption
 TARGET_HW_DISK_ENCRYPTION := true
+TARGET_CRYPTFS_HW_PATH := device/qcom/common/cryptfs_hw
 
 # Enable dexpreopt to speed boot time
 ifeq ($(HOST_OS),linux)
