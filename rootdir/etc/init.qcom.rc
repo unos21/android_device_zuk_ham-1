@@ -19,7 +19,7 @@ on early-init
     mount debugfs debugfs /sys/kernel/debug
     chmod 0755 /sys/kernel/debug
 
-    chown system system /sys/kernel/debug/kgsl/proc
+    symlink /proc/wakeup /d
 
 on init
     # Set permissions for persist partition
