@@ -61,9 +61,6 @@ AUDIO_FEATURE_ENABLED_HWDEP_CAL            := true
 AUDIO_FEATURE_ENABLED_LOW_LATENCY_CAPTURE  := true
 AUDIO_FEATURE_LOW_LATENCY_PRIMARY          := true
 
-# ANT+
-BOARD_ANT_WIRELESS_DEVICE := "vfs-prerelease"
-
 # Bluetooth
 BOARD_HAVE_BLUETOOTH                        := true
 BOARD_HAVE_BLUETOOTH_QCOM                   := true
