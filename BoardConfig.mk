@@ -77,6 +77,9 @@ TARGET_USE_COMPAT_GRALLOC_ALIGN := true
 # Charger
 BOARD_CHARGER_DISABLE_INIT_BLANK := true
 
+#Dummy Recovery
+TARGET_DUMMY_RECOVERY_PATCH := true
+
 # DT2W
 TARGET_TAP_TO_WAKE_NODE := "/sys/devices/virtual/touch/tp_dev/gesture_on"
 
