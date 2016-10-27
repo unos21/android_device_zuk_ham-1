@@ -42,6 +42,7 @@ ro.ril.em_redial_vt_failover=true
 ro.frp.pst=/dev/block/bootdevice/by-name/frp
 
 # Properties from ham.mk
+ro.com.android.prov_mobiledata=false
 mm.enable.smoothstreaming=true
 media.stagefright.codecremote=false
 use.dedicated.device.for.voip=true

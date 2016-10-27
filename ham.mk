@@ -169,6 +169,9 @@ PRODUCT_PACKAGES += \
     libqmi_client_qmux \
     libdsutils \
     libwpa_qmi_eap_proxy
+
+PRODUCT_PACKAGES += \
+    AOSPLinks
 	
 # Keylayouts
 PRODUCT_COPY_FILES += \
