@@ -152,6 +152,7 @@ TARGET_POWERHAL_VARIANT := qcom
 
 # Radio
 TARGET_RIL_VARIANT := caf
+BOARD_RIL_CLASS := ../../../device/zuk/ham/ril/
 
 # Recovery
 TARGET_RECOVERY_FSTAB := $(DEVICE_PATH)/rootdir/etc/fstab.qcom
