@@ -17,9 +17,6 @@ endif
 
 LOCAL_CFLAGS += -D_ANDROID_
 
-LOCAL_CLANG_CFLAGS += \
-        -Wno-error=enum-conversion
-
 LOCAL_SRC_FILES:= \
         src/mm_qcamera_main_menu.c \
         src/mm_qcamera_app.c \
@@ -91,7 +88,6 @@ LOCAL_SHARED_LIBRARIES:= \
 LOCAL_MODULE_TAGS := optional
 
 LOCAL_MODULE:= mm-qcamera-app
-LOCAL_CLANG := false
 include $(BUILD_EXECUTABLE)
 endif
 
@@ -110,9 +106,6 @@ LOCAL_CFLAGS += -DUSE_ION
 endif
 
 LOCAL_CFLAGS += -D_ANDROID_
-
-LOCAL_CLANG_CFLAGS += \
-        -Wno-error=enum-conversion
 
 LOCAL_SRC_FILES:= \
         src/mm_qcamera_main_menu.c \
