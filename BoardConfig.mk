@@ -50,11 +50,11 @@ BOARD_DTBTOOL_ARGS                 := -2
 TARGET_KERNEL_ARCH                 := arm
 BOARD_KERNEL_CMDLINE               := console=tty60,115200,n8 androidboot.hardware=qcom user_debug=31 msm_rtb.filter=0x3b7 ehci-hcd.park=3 androidboot.bootdevice=msm_sdcc.1 vmalloc=480M androidboot.selinux=permissive
 TARGET_KERNEL_SOURCE               := kernel/cyanogen/msm8974
-TARGET_KERNEL_CONFIG               := lineage_k9_defconfig
+TARGET_KERNEL_CONFIG               := lineageos_k9_defconfig
 
 # Enable DIAG on debug builds
 ifneq ($(TARGET_BUILD_VARIANT),user)
-TARGET_KERNEL_ADDITIONAL_CONFIG:= lineage_debug_config
+TARGET_KERNEL_ADDITIONAL_CONFIG:= lineageos_debug_config
 endif
 
 # Audio
