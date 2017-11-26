@@ -62,7 +62,7 @@ TARGET_KERNEL_ADDITIONAL_CONFIG:= lineageos_debug_config
 endif
 
 # QCOM
-BOARD_USES_QCOM_HARDWARE := true
+#BOARD_USES_QCOM_HARDWARE := true
 
 # ADB legacy interface
 TARGET_USES_LEGACY_ADB_INTERFACE := true
@@ -115,6 +115,7 @@ TARGET_USES_ION := true
 OVERRIDE_RS_DRIVER := libRSDriver_adreno.so
 HAVE_ADRENO_SOURCE:= false
 NUM_FRAMEBUFFER_SURFACE_BUFFERS := 3
+TARGET_USES_HWC2 := true
 
 # Shader cache config options
 # Maximum size of the  GLES Shaders that can be cached for reuse.
