@@ -13,14 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Get the long list of APNs
+PRODUCT_COPY_FILES += device/zuk/ham/apns-full-conf.xml:system/etc/apns-conf.xml
+
 # Inherit from those products. Most specific first.
 $(call inherit-product, $(SRC_TARGET_DIR)/product/full_base_telephony.mk)
 
 # Inherit from ham device
 $(call inherit-product, device/zuk/ham/ham.mk)
-
-# Inherit some aosp stuff.
-$(call inherit-product, vendor/aosp/config/common_full_phone.mk)
 
 PRODUCT_NAME := aosp_ham
 PRODUCT_DEVICE := ham
