@@ -1,31 +1,31 @@
-/*
-Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-    * Redistributions of source code must retain the above copyright
-      notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above
-      copyright notice, this list of conditions and the following
-      disclaimer in the documentation and/or other materials provided
-      with the distribution.
-    * Neither the name of The Linux Foundation nor the names of its
-      contributors may be used to endorse or promote products derived
-      from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
-WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
-ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
-BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
-BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
-WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
-OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
-IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are
+ * met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above
+ *       copyright notice, this list of conditions and the following
+ *       disclaimer in the documentation and/or other materials provided
+ *       with the distribution.
+ *     * Neither the name of The Linux Foundation nor the names of its
+ *       contributors may be used to endorse or promote products derived
+ *       from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
+ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+ * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+ * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ */
 
 #include <pthread.h>
 #include <errno.h>
@@ -35,52 +35,43 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <fcntl.h>
 #include <poll.h>
 #include <time.h>
-#include <semaphore.h>
+#include <cam_semaphore.h>
+#ifdef VENUS_PRESENT
+#include <media/msm_media_info.h>
+#endif
 
 #include "mm_camera_dbg.h"
 #include "mm_camera_interface.h"
 #include "mm_camera.h"
-
-#define MM_CAMERA_MAX_NUM_FRAMES     16
 
 /* internal function decalre */
 int32_t mm_stream_qbuf(mm_stream_t *my_obj,
                        mm_camera_buf_def_t *buf);
 int32_t mm_stream_set_ext_mode(mm_stream_t * my_obj);
 int32_t mm_stream_set_fmt(mm_stream_t * my_obj);
-int32_t mm_stream_get_offset(mm_stream_t *my_obj);
-int32_t mm_stream_set_cid(mm_stream_t *my_obj,stream_cid_t *in_value);
+int32_t mm_stream_sync_info(mm_stream_t *my_obj);
 int32_t mm_stream_init_bufs(mm_stream_t * my_obj);
 int32_t mm_stream_deinit_bufs(mm_stream_t * my_obj);
 int32_t mm_stream_request_buf(mm_stream_t * my_obj);
 int32_t mm_stream_unreg_buf(mm_stream_t * my_obj);
 int32_t mm_stream_release(mm_stream_t *my_obj);
-int32_t mm_stream_get_crop(mm_stream_t *my_obj,
-                         mm_camera_rect_t *crop);
-int32_t mm_stream_get_cid(mm_stream_t *my_obj,
-                          stream_cid_t *out_value);
-int32_t mm_stream_set_parm_acquire(mm_stream_t *my_obj,
-                         void *value);
-int32_t mm_stream_get_parm_acquire(mm_stream_t *my_obj,
-                         void *value);
-int32_t mm_stream_set_parm_config(mm_stream_t *my_obj,
-                         void *value);
-int32_t mm_stream_get_parm_config(mm_stream_t *my_obj,
-                         void *value);
-int32_t mm_stream_set_parm_start(mm_stream_t *my_obj,
-                         void *value);
-int32_t mm_stream_get_parm_start(mm_stream_t *my_obj,
-                         void *value);
+int32_t mm_stream_set_parm(mm_stream_t *my_obj,
+                           cam_stream_parm_buffer_t *value);
+int32_t mm_stream_get_parm(mm_stream_t *my_obj,
+                           cam_stream_parm_buffer_t *value);
+int32_t mm_stream_do_action(mm_stream_t *my_obj,
+                            void *in_value);
 int32_t mm_stream_streamon(mm_stream_t *my_obj);
 int32_t mm_stream_streamoff(mm_stream_t *my_obj);
 int32_t mm_stream_read_msm_frame(mm_stream_t * my_obj,
-                                 mm_camera_buf_info_t* buf_info);
+                                 mm_camera_buf_info_t* buf_info,
+                                 uint8_t num_planes);
 int32_t mm_stream_config(mm_stream_t *my_obj,
                          mm_camera_stream_config_t *config);
 int32_t mm_stream_reg_buf(mm_stream_t * my_obj);
 int32_t mm_stream_buf_done(mm_stream_t * my_obj,
                            mm_camera_buf_def_t *frame);
-
+int32_t mm_stream_calc_offset(mm_stream_t *my_obj);
 
 /* state machine function declare */
 int32_t mm_stream_fsm_inited(mm_stream_t * my_obj,
@@ -103,101 +94,83 @@ int32_t mm_stream_fsm_reg(mm_stream_t * my_obj,
                           mm_stream_evt_type_t evt,
                           void * in_val,
                           void * out_val);
-int32_t mm_stream_fsm_active_stream_on(mm_stream_t * my_obj,
-                                       mm_stream_evt_type_t evt,
-                                       void * in_val,
-                                       void * out_val);
-int32_t mm_stream_fsm_active_stream_off(mm_stream_t * my_obj,
-                                        mm_stream_evt_type_t evt,
-                                        void * in_val,
-                                        void * out_val);
+int32_t mm_stream_fsm_active(mm_stream_t * my_obj,
+                             mm_stream_evt_type_t evt,
+                             void * in_val,
+                             void * out_val);
+uint32_t mm_stream_get_v4l2_fmt(cam_format_t fmt);
 
-extern int32_t mm_camera_send_native_ctrl_cmd(mm_camera_obj_t * my_obj,
-                                       cam_ctrl_type type,
-                                       uint32_t length,
-                                       void *value);
 
-static int get_stream_inst_handle(mm_stream_t *my_obj)
-{
-  int rc = 0;
-  uint32_t inst_handle;
-  struct msm_camera_v4l2_ioctl_t v4l2_ioctl;
-
-  v4l2_ioctl.id = MSM_V4L2_PID_INST_HANDLE;
-  v4l2_ioctl.ioctl_ptr = &inst_handle;
-  v4l2_ioctl.len = sizeof(inst_handle);
-  rc = ioctl(my_obj->fd, MSM_CAM_V4L2_IOCTL_PRIVATE_G_CTRL, &v4l2_ioctl);
-  if (rc) {
-    CDBG_ERROR("%s Error getting mctl pp inst handle", __func__);
-    return rc;
-  }
-
-  my_obj->inst_hdl = inst_handle;
-  CDBG("%s: X, inst_handle = 0x%x, my_handle = 0x%x, "
-       "image_mode = %d, fd = %d, state = %d, rc = %d",
-       __func__, my_obj->inst_hdl, my_obj->my_hdl,
-       my_obj->ext_image_mode, my_obj->fd, my_obj->state, rc);
-  return rc;
-}
-
+/*===========================================================================
+ * FUNCTION   : mm_stream_handle_rcvd_buf
+ *
+ * DESCRIPTION: function to handle newly received stream buffer
+ *
+ * PARAMETERS :
+ *   @cam_obj : stream object
+ *   @buf_info: ptr to struct storing buffer information
+ *
+ * RETURN     : none
+ *==========================================================================*/
 void mm_stream_handle_rcvd_buf(mm_stream_t *my_obj,
-                                  mm_camera_buf_info_t *buf_info)
+                               mm_camera_buf_info_t *buf_info,
+                               uint8_t has_cb)
 {
-    int32_t i;
-    uint8_t has_cb = 0;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
 
     /* enqueue to super buf thread */
     if (my_obj->is_bundled) {
         mm_camera_cmdcb_t* node = NULL;
 
-        /* send sem_post to wake up channel cmd thread to enqueue to super buffer */
+        /* send cam_sem_post to wake up channel cmd thread to enqueue to super buffer */
         node = (mm_camera_cmdcb_t *)malloc(sizeof(mm_camera_cmdcb_t));
         if (NULL != node) {
             memset(node, 0, sizeof(mm_camera_cmdcb_t));
             node->cmd_type = MM_CAMERA_CMD_TYPE_DATA_CB;
-            memcpy(&node->u.buf, buf_info, sizeof(mm_camera_buf_info_t));
+            node->u.buf = *buf_info;
 
             /* enqueue to cmd thread */
-            mm_camera_queue_enq(&(my_obj->ch_obj->cmd_thread.cmd_queue), node);
+            cam_queue_enq(&(my_obj->ch_obj->cmd_thread.cmd_queue), node);
 
             /* wake up cmd thread */
-            sem_post(&(my_obj->ch_obj->cmd_thread.cmd_sem));
+            cam_sem_post(&(my_obj->ch_obj->cmd_thread.cmd_sem));
         } else {
             CDBG_ERROR("%s: No memory for mm_camera_node_t", __func__);
         }
     }
 
-    /* check if has CB */
-    for (i=0 ; i< MM_CAMERA_STREAM_BUF_CB_MAX; i++) {
-        if(NULL != my_obj->buf_cb[i].cb) {
-            has_cb = 1;
-        }
-    }
     if(has_cb) {
         mm_camera_cmdcb_t* node = NULL;
 
-        /* send sem_post to wake up cmd thread to dispatch dataCB */
+        /* send cam_sem_post to wake up cmd thread to dispatch dataCB */
         node = (mm_camera_cmdcb_t *)malloc(sizeof(mm_camera_cmdcb_t));
         if (NULL != node) {
             memset(node, 0, sizeof(mm_camera_cmdcb_t));
             node->cmd_type = MM_CAMERA_CMD_TYPE_DATA_CB;
-            memcpy(&node->u.buf, buf_info, sizeof(mm_camera_buf_info_t));
+            node->u.buf = *buf_info;
 
             /* enqueue to cmd thread */
-            mm_camera_queue_enq(&(my_obj->cmd_thread.cmd_queue), node);
+            cam_queue_enq(&(my_obj->cmd_thread.cmd_queue), node);
 
             /* wake up cmd thread */
-            sem_post(&(my_obj->cmd_thread.cmd_sem));
+            cam_sem_post(&(my_obj->cmd_thread.cmd_sem));
         } else {
             CDBG_ERROR("%s: No memory for mm_camera_node_t", __func__);
         }
     }
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_stream_data_notify
+ *
+ * DESCRIPTION: callback to handle data notify from kernel
+ *
+ * PARAMETERS :
+ *   @user_data : user data ptr (stream object)
+ *
+ * RETURN     : none
+ *==========================================================================*/
 static void mm_stream_data_notify(void* user_data)
 {
     mm_stream_t *my_obj = (mm_stream_t*)user_data;
@@ -209,11 +182,9 @@ static void mm_stream_data_notify(void* user_data)
         return;
     }
 
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
-    if (MM_STREAM_STATE_ACTIVE_STREAM_ON != my_obj->state) {
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
+    if (MM_STREAM_STATE_ACTIVE != my_obj->state) {
         /* this Cb will only received in active_stream_on state
          * if not so, return here */
         CDBG_ERROR("%s: ERROR!! Wrong state (%d) to receive data notify!",
@@ -222,14 +193,23 @@ static void mm_stream_data_notify(void* user_data)
     }
 
     memset(&buf_info, 0, sizeof(mm_camera_buf_info_t));
-
-    pthread_mutex_lock(&my_obj->buf_lock);
-    rc = mm_stream_read_msm_frame(my_obj, &buf_info);
+    rc = mm_stream_read_msm_frame(my_obj, &buf_info, my_obj->frame_offset.num_planes);
     if (rc != 0) {
-        pthread_mutex_unlock(&my_obj->buf_lock);
         return;
     }
     idx = buf_info.buf->buf_idx;
+
+    pthread_mutex_lock(&my_obj->cb_lock);
+    for (i = 0; i < MM_CAMERA_STREAM_BUF_CB_MAX; i++) {
+        if(NULL != my_obj->buf_cb[i].cb) {
+            /* for every CB, add ref count */
+            has_cb = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&my_obj->cb_lock);
+
+    pthread_mutex_lock(&my_obj->buf_lock);
     /* update buffer location */
     my_obj->buf_status[idx].in_kernel = 0;
 
@@ -238,76 +218,23 @@ static void mm_stream_data_notify(void* user_data)
         /* need to add into super buf since bundled, add ref count */
         my_obj->buf_status[idx].buf_refcnt++;
     }
-
-    for (i=0; i < MM_CAMERA_STREAM_BUF_CB_MAX; i++) {
-        if(NULL != my_obj->buf_cb[i].cb) {
-            /* for every CB, add ref count */
-            my_obj->buf_status[idx].buf_refcnt++;
-            has_cb = 1;
-        }
-    }
+    my_obj->buf_status[idx].buf_refcnt += has_cb;
     pthread_mutex_unlock(&my_obj->buf_lock);
 
-    mm_stream_handle_rcvd_buf(my_obj, &buf_info);
+    mm_stream_handle_rcvd_buf(my_obj, &buf_info, has_cb);
 }
 
-/* special function for dataCB registered at other stream */
-static void mm_stream_buf_notify(mm_camera_super_buf_t *super_buf,
-                                 void *user_data)
-{
-    mm_stream_t * my_obj = (mm_stream_t*)user_data;
-    mm_camera_buf_info_t buf_info;
-    int8_t i;
-    mm_camera_buf_def_t *buf = super_buf->bufs[0];
-
-    CDBG("%s : E",__func__);
-    if (my_obj == NULL) {
-        return;
-    }
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
-
-    if (MM_STREAM_STATE_ACTIVE_STREAM_OFF != my_obj->state) {
-        /* this CB will only received in active_stream_off state
-         * if not so, return here */
-        return;
-    }
-
-    /* 1) copy buf into local buf */
-    if (my_obj->buf_num <= 0) {
-        CDBG_ERROR("%s: Local buf is not allocated yet", __func__);
-        return;
-    }
-
-    my_obj->buf[my_obj->local_buf_idx].buf_idx = 0;
-    my_obj->buf[my_obj->local_buf_idx].stream_id = my_obj->my_hdl;
-    my_obj->buf[my_obj->local_buf_idx].frame_idx = buf->frame_idx;
-
-    memcpy(&my_obj->buf[my_obj->local_buf_idx].ts, &buf->ts, sizeof(buf->ts));
-
-    memcpy(my_obj->buf[my_obj->local_buf_idx].buffer, buf->buffer, buf->frame_len);
-
-    /* set flag to indicate buf be to sent out is from local */
-    my_obj->is_local_buf = 1;
-
-    /* 2) buf_done the buf from other stream */
-    mm_channel_qbuf(my_obj->ch_obj, buf);
-
-    /* 3) handle received buf */
-    memset(&buf_info, 0, sizeof(mm_camera_buf_info_t));
-    buf_info.frame_idx =my_obj->buf[my_obj->local_buf_idx].frame_idx;
-    buf_info.buf = &my_obj->buf[my_obj->local_buf_idx];
-    buf_info.stream_id = my_obj->my_hdl;
-
-    my_obj->local_buf_idx++;
-    if (my_obj->local_buf_idx >= my_obj->buf_num) {
-        my_obj->local_buf_idx = 0;
-    }
-    mm_stream_handle_rcvd_buf(my_obj, &buf_info);
-}
-
+/*===========================================================================
+ * FUNCTION   : mm_stream_dispatch_app_data
+ *
+ * DESCRIPTION: dispatch stream buffer to registered users
+ *
+ * PARAMETERS :
+ *   @cmd_cb  : ptr storing stream buffer information
+ *   @userdata: user data ptr (stream object)
+ *
+ * RETURN     : none
+ *==========================================================================*/
 static void mm_stream_dispatch_app_data(mm_camera_cmdcb_t *cmd_cb,
                                         void* user_data)
 {
@@ -315,14 +242,13 @@ static void mm_stream_dispatch_app_data(mm_camera_cmdcb_t *cmd_cb,
     mm_stream_t * my_obj = (mm_stream_t *)user_data;
     mm_camera_buf_info_t* buf_info = NULL;
     mm_camera_super_buf_t super_buf;
+    mm_camera_cmd_thread_name("mm_cam_stream");
 
     if (NULL == my_obj) {
         return;
     }
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
 
     if (MM_CAMERA_CMD_TYPE_DATA_CB != cmd_cb->cmd_type) {
         CDBG_ERROR("%s: Wrong cmd_type (%d) for dataCB",
@@ -337,7 +263,6 @@ static void mm_stream_dispatch_app_data(mm_camera_cmdcb_t *cmd_cb,
     super_buf.camera_handle = my_obj->ch_obj->cam_obj->my_hdl;
     super_buf.ch_id = my_obj->ch_obj->my_hdl;
 
-
     pthread_mutex_lock(&my_obj->cb_lock);
     for(i = 0; i < MM_CAMERA_STREAM_BUF_CB_MAX; i++) {
         if(NULL != my_obj->buf_cb[i].cb) {
@@ -345,6 +270,13 @@ static void mm_stream_dispatch_app_data(mm_camera_cmdcb_t *cmd_cb,
                 /* if <0, means infinite CB
                  * if >0, means CB for certain times
                  * both case we need to call CB */
+
+                /* increase buf ref cnt */
+                pthread_mutex_lock(&my_obj->buf_lock);
+                my_obj->buf_status[buf_info->buf->buf_idx].buf_refcnt++;
+                pthread_mutex_unlock(&my_obj->buf_lock);
+
+                /* callback */
                 my_obj->buf_cb[i].cb(&super_buf,
                                      my_obj->buf_cb[i].user_data);
             }
@@ -361,9 +293,27 @@ static void mm_stream_dispatch_app_data(mm_camera_cmdcb_t *cmd_cb,
         }
     }
     pthread_mutex_unlock(&my_obj->cb_lock);
+
+    /* do buf_done since we increased refcnt by one when has_cb */
+    mm_stream_buf_done(my_obj, buf_info->buf);
 }
 
-/* state machine entry */
+/*===========================================================================
+ * FUNCTION   : mm_stream_fsm_fn
+ *
+ * DESCRIPTION: stream finite state machine entry function. Depends on stream
+ *              state, incoming event will be handled differently.
+ *
+ * PARAMETERS :
+ *   @my_obj   : ptr to a stream object
+ *   @evt      : stream event to be processed
+ *   @in_val   : input event payload. Can be NULL if not needed.
+ *   @out_val  : output payload, Can be NULL if not needed.
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_fsm_fn(mm_stream_t *my_obj,
                          mm_stream_evt_type_t evt,
                          void * in_val,
@@ -371,10 +321,8 @@ int32_t mm_stream_fsm_fn(mm_stream_t *my_obj,
 {
     int32_t rc = -1;
 
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d, event = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state, evt);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
     switch (my_obj->state) {
     case MM_STREAM_STATE_NOTUSED:
         CDBG("%s: Not handling evt in unused state", __func__);
@@ -394,11 +342,8 @@ int32_t mm_stream_fsm_fn(mm_stream_t *my_obj,
     case MM_STREAM_STATE_REG:
         rc = mm_stream_fsm_reg(my_obj, evt, in_val, out_val);
         break;
-    case MM_STREAM_STATE_ACTIVE_STREAM_ON:
-        rc = mm_stream_fsm_active_stream_on(my_obj, evt, in_val, out_val);
-        break;
-    case MM_STREAM_STATE_ACTIVE_STREAM_OFF:
-        rc = mm_stream_fsm_active_stream_off(my_obj, evt, in_val, out_val);
+    case MM_STREAM_STATE_ACTIVE:
+        rc = mm_stream_fsm_active(my_obj, evt, in_val, out_val);
         break;
     default:
         CDBG("%s: Not a valid state (%d)", __func__, my_obj->state);
@@ -408,6 +353,22 @@ int32_t mm_stream_fsm_fn(mm_stream_t *my_obj,
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_stream_fsm_inited
+ *
+ * DESCRIPTION: stream finite state machine function to handle event in INITED
+ *              state.
+ *
+ * PARAMETERS :
+ *   @my_obj   : ptr to a stream object
+ *   @evt      : stream event to be processed
+ *   @in_val   : input event payload. Can be NULL if not needed.
+ *   @out_val  : output payload, Can be NULL if not needed.
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_fsm_inited(mm_stream_t *my_obj,
                              mm_stream_evt_type_t evt,
                              void * in_val,
@@ -416,10 +377,8 @@ int32_t mm_stream_fsm_inited(mm_stream_t *my_obj,
     int32_t rc = 0;
     char dev_name[MM_CAMERA_DEV_NAME_LEN];
 
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d, event = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state, evt);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
     switch(evt) {
     case MM_STREAM_EVT_ACQUIRE:
         if ((NULL == my_obj->ch_obj) || (NULL == my_obj->ch_obj->cam_obj)) {
@@ -432,41 +391,47 @@ int32_t mm_stream_fsm_inited(mm_stream_t *my_obj,
                  mm_camera_util_get_dev_name(my_obj->ch_obj->cam_obj->my_hdl));
 
         my_obj->fd = open(dev_name, O_RDWR | O_NONBLOCK);
-        if (my_obj->fd <= 0) {
+        if (my_obj->fd < 0) {
             CDBG_ERROR("%s: open dev returned %d\n", __func__, my_obj->fd);
             rc = -1;
             break;
         }
-        CDBG("%s: open dev fd = %d, ext_image_mode = %d, sensor_idx = %d\n",
-                 __func__, my_obj->fd, my_obj->ext_image_mode, my_obj->sensor_idx);
+        CDBG("%s: open dev fd = %d\n", __func__, my_obj->fd);
         rc = mm_stream_set_ext_mode(my_obj);
         if (0 == rc) {
             my_obj->state = MM_STREAM_STATE_ACQUIRED;
         } else {
             /* failed setting ext_mode
              * close fd */
-            if(my_obj->fd > 0) {
-                close(my_obj->fd);
-                my_obj->fd = -1;
-            }
+            close(my_obj->fd);
+            my_obj->fd = -1;
             break;
-        }
-        rc = get_stream_inst_handle(my_obj);
-        if(rc) {
-            if(my_obj->fd > 0) {
-                close(my_obj->fd);
-                my_obj->fd = -1;
-            }
         }
         break;
     default:
-        CDBG_ERROR("%s: Invalid evt=%d, stream_state=%d",
-                   __func__,evt,my_obj->state);
+        CDBG_ERROR("%s: invalid state (%d) for evt (%d), in(%p), out(%p)",
+                   __func__, my_obj->state, evt, in_val, out_val);
         break;
     }
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_stream_fsm_acquired
+ *
+ * DESCRIPTION: stream finite state machine function to handle event in AQUIRED
+ *              state.
+ *
+ * PARAMETERS :
+ *   @my_obj   : ptr to a stream object
+ *   @evt      : stream event to be processed
+ *   @in_val   : input event payload. Can be NULL if not needed.
+ *   @out_val  : output payload, Can be NULL if not needed.
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_fsm_acquired(mm_stream_t *my_obj,
                                mm_stream_evt_type_t evt,
                                void * in_val,
@@ -474,10 +439,8 @@ int32_t mm_stream_fsm_acquired(mm_stream_t *my_obj,
 {
     int32_t rc = 0;
 
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d, event = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state, evt);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
     switch(evt) {
     case MM_STREAM_EVT_SET_FMT:
         {
@@ -497,29 +460,51 @@ int32_t mm_stream_fsm_acquired(mm_stream_t *my_obj,
          my_obj->state = MM_STREAM_STATE_NOTUSED;
         break;
     case MM_STREAM_EVT_SET_PARM:
-        rc = mm_stream_set_parm_acquire(my_obj, in_val);
+        {
+            mm_evt_paylod_set_get_stream_parms_t *payload =
+                (mm_evt_paylod_set_get_stream_parms_t *)in_val;
+            rc = mm_stream_set_parm(my_obj, payload->parms);
+        }
         break;
     case MM_STREAM_EVT_GET_PARM:
-        rc = mm_stream_get_parm_acquire(my_obj,out_val);
+        {
+            mm_evt_paylod_set_get_stream_parms_t *payload =
+                (mm_evt_paylod_set_get_stream_parms_t *)in_val;
+            rc = mm_stream_get_parm(my_obj, payload->parms);
+        }
         break;
     default:
-        CDBG_ERROR("%s: Invalid evt=%d, stream_state=%d",
-                   __func__, evt, my_obj->state);
+        CDBG_ERROR("%s: invalid state (%d) for evt (%d), in(%p), out(%p)",
+                   __func__, my_obj->state, evt, in_val, out_val);
     }
-    CDBG("%s :X rc = %d",__func__,rc);
+    CDBG("%s :X rc = %d", __func__, rc);
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_stream_fsm_cfg
+ *
+ * DESCRIPTION: stream finite state machine function to handle event in CONFIGURED
+ *              state.
+ *
+ * PARAMETERS :
+ *   @my_obj   : ptr to a stream object
+ *   @evt      : stream event to be processed
+ *   @in_val   : input event payload. Can be NULL if not needed.
+ *   @out_val  : output payload, Can be NULL if not needed.
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_fsm_cfg(mm_stream_t * my_obj,
                           mm_stream_evt_type_t evt,
                           void * in_val,
                           void * out_val)
 {
     int32_t rc = 0;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d, event = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state, evt);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
     switch(evt) {
     case MM_STREAM_EVT_SET_FMT:
         {
@@ -538,10 +523,18 @@ int32_t mm_stream_fsm_cfg(mm_stream_t * my_obj,
         my_obj->state = MM_STREAM_STATE_NOTUSED;
         break;
     case MM_STREAM_EVT_SET_PARM:
-        rc = mm_stream_set_parm_config(my_obj, in_val);
+        {
+            mm_evt_paylod_set_get_stream_parms_t *payload =
+                (mm_evt_paylod_set_get_stream_parms_t *)in_val;
+            rc = mm_stream_set_parm(my_obj, payload->parms);
+        }
         break;
     case MM_STREAM_EVT_GET_PARM:
-        rc = mm_stream_get_parm_config(my_obj, out_val);
+        {
+            mm_evt_paylod_set_get_stream_parms_t *payload =
+                (mm_evt_paylod_set_get_stream_parms_t *)in_val;
+            rc = mm_stream_get_parm(my_obj, payload->parms);
+        }
         break;
     case MM_STREAM_EVT_GET_BUF:
         rc = mm_stream_init_bufs(my_obj);
@@ -551,23 +544,37 @@ int32_t mm_stream_fsm_cfg(mm_stream_t * my_obj,
         }
         break;
     default:
-        CDBG_ERROR("%s: Invalid evt=%d, stream_state=%d",
-                   __func__, evt, my_obj->state);
+        CDBG_ERROR("%s: invalid state (%d) for evt (%d), in(%p), out(%p)",
+                   __func__, my_obj->state, evt, in_val, out_val);
     }
-    CDBG("%s :X rc = %d",__func__,rc);
+    CDBG("%s :X rc = %d", __func__, rc);
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_stream_fsm_buffed
+ *
+ * DESCRIPTION: stream finite state machine function to handle event in BUFFED
+ *              state.
+ *
+ * PARAMETERS :
+ *   @my_obj   : ptr to a stream object
+ *   @evt      : stream event to be processed
+ *   @in_val   : input event payload. Can be NULL if not needed.
+ *   @out_val  : output payload, Can be NULL if not needed.
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_fsm_buffed(mm_stream_t * my_obj,
                              mm_stream_evt_type_t evt,
                              void * in_val,
                              void * out_val)
 {
     int32_t rc = 0;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d, event = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state, evt);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
     switch(evt) {
     case MM_STREAM_EVT_PUT_BUF:
         rc = mm_stream_deinit_bufs(my_obj);
@@ -584,29 +591,51 @@ int32_t mm_stream_fsm_buffed(mm_stream_t * my_obj,
         }
         break;
     case MM_STREAM_EVT_SET_PARM:
-        rc = mm_stream_set_parm_config(my_obj, in_val);
+        {
+            mm_evt_paylod_set_get_stream_parms_t *payload =
+                (mm_evt_paylod_set_get_stream_parms_t *)in_val;
+            rc = mm_stream_set_parm(my_obj, payload->parms);
+        }
         break;
     case MM_STREAM_EVT_GET_PARM:
-        rc = mm_stream_get_parm_config(my_obj, out_val);
+        {
+            mm_evt_paylod_set_get_stream_parms_t *payload =
+                (mm_evt_paylod_set_get_stream_parms_t *)in_val;
+            rc = mm_stream_get_parm(my_obj, payload->parms);
+        }
         break;
     default:
-        CDBG_ERROR("%s: Invalid evt=%d, stream_state=%d",
-                   __func__, evt, my_obj->state);
+        CDBG_ERROR("%s: invalid state (%d) for evt (%d), in(%p), out(%p)",
+                   __func__, my_obj->state, evt, in_val, out_val);
     }
-    CDBG("%s :X rc = %d",__func__,rc);
+    CDBG("%s :X rc = %d", __func__, rc);
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_stream_fsm_reg
+ *
+ * DESCRIPTION: stream finite state machine function to handle event in REGGED
+ *              state.
+ *
+ * PARAMETERS :
+ *   @my_obj   : ptr to a stream object
+ *   @evt      : stream event to be processed
+ *   @in_val   : input event payload. Can be NULL if not needed.
+ *   @out_val  : output payload, Can be NULL if not needed.
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_fsm_reg(mm_stream_t * my_obj,
                           mm_stream_evt_type_t evt,
                           void * in_val,
                           void * out_val)
 {
     int32_t rc = 0;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d, event = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state, evt);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
 
     switch(evt) {
     case MM_STREAM_EVT_UNREG_BUF:
@@ -617,170 +646,186 @@ int32_t mm_stream_fsm_reg(mm_stream_t * my_obj,
         break;
     case MM_STREAM_EVT_START:
         {
+            uint8_t has_cb = 0;
+            uint8_t i;
             /* launch cmd thread if CB is not null */
-            if (NULL != my_obj->buf_cb) {
-                mm_camera_cmd_thread_launch(&my_obj->cmd_thread,
-                                mm_stream_dispatch_app_data,
-                                (void *)my_obj);
-
-            }
-
-            if(my_obj->need_stream_on) {
-                rc = mm_stream_streamon(my_obj);
-                if (0 != rc) {
-                    /* failed stream on, need to release cmd thread if it's launched */
-                    if (NULL != my_obj->buf_cb) {
-                        mm_camera_cmd_thread_release(&my_obj->cmd_thread);
-
-                    }
+            pthread_mutex_lock(&my_obj->cb_lock);
+            for (i = 0; i < MM_CAMERA_STREAM_BUF_CB_MAX; i++) {
+                if(NULL != my_obj->buf_cb[i].cb) {
+                    has_cb = 1;
                     break;
                 }
-                my_obj->state = MM_STREAM_STATE_ACTIVE_STREAM_ON;
-            } else {
-                /* register CB at video fd */
-                CDBG("%s : Video Size snapshot Enabled",__func__);
-                mm_stream_data_cb_t cb;
-                memset(&cb, 0, sizeof(mm_stream_data_cb_t));
-                cb.cb_count = my_obj->num_stream_cb_times; /* reigstration cb times */
-                if (cb.cb_count == 0) {
-                    cb.cb_count = 1;
+            }
+            pthread_mutex_unlock(&my_obj->cb_lock);
+
+            if (has_cb) {
+                mm_camera_cmd_thread_launch(&my_obj->cmd_thread,
+                                            mm_stream_dispatch_app_data,
+                                            (void *)my_obj);
+            }
+
+            my_obj->state = MM_STREAM_STATE_ACTIVE;
+            rc = mm_stream_streamon(my_obj);
+            if (0 != rc) {
+                /* failed stream on, need to release cmd thread if it's launched */
+                if (has_cb) {
+                    mm_camera_cmd_thread_release(&my_obj->cmd_thread);
                 }
-                cb.user_data = (void*)my_obj;
-                cb.cb = mm_stream_buf_notify;
-                rc = mm_channel_reg_stream_cb(my_obj->ch_obj, &cb,
-                                              MSM_V4L2_EXT_CAPTURE_MODE_VIDEO,
-                                              my_obj->sensor_idx);
-                my_obj->state = MM_STREAM_STATE_ACTIVE_STREAM_OFF;
+                my_obj->state = MM_STREAM_STATE_REG;
+                break;
             }
         }
         break;
     case MM_STREAM_EVT_SET_PARM:
-        rc = mm_stream_set_parm_config(my_obj, in_val);
+        {
+            mm_evt_paylod_set_get_stream_parms_t *payload =
+                (mm_evt_paylod_set_get_stream_parms_t *)in_val;
+            rc = mm_stream_set_parm(my_obj, payload->parms);
+        }
         break;
     case MM_STREAM_EVT_GET_PARM:
-        rc = mm_stream_get_parm_config(my_obj, out_val);
+        {
+            mm_evt_paylod_set_get_stream_parms_t *payload =
+                (mm_evt_paylod_set_get_stream_parms_t *)in_val;
+            rc = mm_stream_get_parm(my_obj, payload->parms);
+        }
         break;
     default:
-        CDBG_ERROR("%s: Invalid evt=%d, stream_state=%d",
-                   __func__, evt, my_obj->state);
+        CDBG_ERROR("%s: invalid state (%d) for evt (%d), in(%p), out(%p)",
+                   __func__, my_obj->state, evt, in_val, out_val);
     }
-    CDBG("%s :X rc = %d",__func__,rc);
+    CDBG("%s :X rc = %d", __func__, rc);
     return rc;
 }
 
-int32_t mm_stream_fsm_active_stream_on(mm_stream_t * my_obj,
-                                              mm_stream_evt_type_t evt,
-                                              void * in_val,
-                                              void * out_val)
+/*===========================================================================
+ * FUNCTION   : mm_stream_fsm_active
+ *
+ * DESCRIPTION: stream finite state machine function to handle event in ACTIVE
+ *              state.
+ *
+ * PARAMETERS :
+ *   @my_obj   : ptr to a stream object
+ *   @evt      : stream event to be processed
+ *   @in_val   : input event payload. Can be NULL if not needed.
+ *   @out_val  : output payload, Can be NULL if not needed.
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_stream_fsm_active(mm_stream_t * my_obj,
+                             mm_stream_evt_type_t evt,
+                             void * in_val,
+                             void * out_val)
 {
     int32_t rc = 0;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d, event = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state, evt);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
     switch(evt) {
     case MM_STREAM_EVT_QBUF:
         rc = mm_stream_buf_done(my_obj, (mm_camera_buf_def_t *)in_val);
         break;
     case MM_STREAM_EVT_STOP:
         {
+            uint8_t has_cb = 0;
+            uint8_t i;
             rc = mm_stream_streamoff(my_obj);
-            if (NULL != my_obj->buf_cb) {
-                mm_camera_cmd_thread_release(&my_obj->cmd_thread);
 
+            pthread_mutex_lock(&my_obj->cb_lock);
+            for (i = 0; i < MM_CAMERA_STREAM_BUF_CB_MAX; i++) {
+                if(NULL != my_obj->buf_cb[i].cb) {
+                    has_cb = 1;
+                    break;
+                }
+            }
+            pthread_mutex_unlock(&my_obj->cb_lock);
+
+            if (has_cb) {
+                mm_camera_cmd_thread_release(&my_obj->cmd_thread);
             }
             my_obj->state = MM_STREAM_STATE_REG;
         }
         break;
     case MM_STREAM_EVT_SET_PARM:
-        rc = mm_stream_set_parm_start(my_obj, in_val);
-        break;
-    case MM_STREAM_EVT_GET_PARM:
-        rc = mm_stream_get_parm_start(my_obj, out_val);
-        break;
-    default:
-        CDBG_ERROR("%s: Invalid evt=%d, stream_state=%d",
-                   __func__, evt, my_obj->state);
-    }
-    CDBG("%s :X rc = %d",__func__,rc);
-    return rc;
-}
-
-int32_t mm_stream_fsm_active_stream_off(mm_stream_t * my_obj,
-                                               mm_stream_evt_type_t evt,
-                                               void * in_val,
-                                               void * out_val)
-{
-    int32_t rc = 0;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d, event = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state, evt);
-    switch(evt) {
-    case MM_STREAM_EVT_QBUF:
-        rc = mm_stream_buf_done(my_obj, (mm_camera_buf_def_t *)in_val);
-        break;
-    case MM_STREAM_EVT_STOP:
         {
-            if (NULL != my_obj->buf_cb) {
-                rc = mm_camera_cmd_thread_release(&my_obj->cmd_thread);
-
-            }
-            my_obj->state = MM_STREAM_STATE_REG;
+            mm_evt_paylod_set_get_stream_parms_t *payload =
+                (mm_evt_paylod_set_get_stream_parms_t *)in_val;
+            rc = mm_stream_set_parm(my_obj, payload->parms);
         }
         break;
-   case MM_STREAM_EVT_SET_PARM:
-        rc = mm_stream_set_parm_config(my_obj, in_val);
-        break;
     case MM_STREAM_EVT_GET_PARM:
-        rc = mm_stream_get_parm_config(my_obj, out_val);
+        {
+            mm_evt_paylod_set_get_stream_parms_t *payload =
+                (mm_evt_paylod_set_get_stream_parms_t *)in_val;
+            rc = mm_stream_get_parm(my_obj, payload->parms);
+        }
+        break;
+    case MM_STREAM_EVT_DO_ACTION:
+        rc = mm_stream_do_action(my_obj, in_val);
         break;
     default:
-        CDBG_ERROR("%s: Invalid evt=%d, stream_state=%d",
-                   __func__, evt, my_obj->state);
+        CDBG_ERROR("%s: invalid state (%d) for evt (%d), in(%p), out(%p)",
+                   __func__, my_obj->state, evt, in_val, out_val);
     }
-    CDBG("%s :X rc = %d",__func__,rc);
+    CDBG("%s :X rc = %d", __func__, rc);
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_stream_config
+ *
+ * DESCRIPTION: configure a stream
+ *
+ * PARAMETERS :
+ *   @my_obj       : stream object
+ *   @config       : stream configuration
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_config(mm_stream_t *my_obj,
                          mm_camera_stream_config_t *config)
 {
     int32_t rc = 0;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
-    memcpy(&my_obj->fmt, &config->fmt, sizeof(mm_camera_image_fmt_t));
-    my_obj->hal_requested_num_bufs = config->num_of_bufs;
-    my_obj->need_stream_on = config->need_stream_on;
-    my_obj->num_stream_cb_times = config->num_stream_cb_times;
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
+    my_obj->stream_info = config->stream_info;
+    my_obj->buf_num = 0;
+    my_obj->mem_vtbl = config->mem_vtbl;
+    my_obj->padding_info = config->padding_info;
+    /* cd through intf always palced at idx 0 of buf_cb */
+    my_obj->buf_cb[0].cb = config->stream_cb;
+    my_obj->buf_cb[0].user_data = config->userdata;
+    my_obj->buf_cb[0].cb_count = -1; /* infinite by default */
 
-    rc = mm_stream_get_offset(my_obj);
-    if(rc != 0) {
-        CDBG_ERROR("%s: Error in offset query",__func__);
-        return rc;
-    }
-    /* write back width and height to config in case mctl has modified the value */
-    config->fmt.width = my_obj->fmt.width;
-    config->fmt.height = my_obj->fmt.height;
-    if(my_obj->need_stream_on) {
-        /* only send fmt to backend if we need streamon */
+    rc = mm_stream_sync_info(my_obj);
+    if (rc == 0) {
         rc = mm_stream_set_fmt(my_obj);
     }
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_stream_release
+ *
+ * DESCRIPTION: release a stream resource
+ *
+ * PARAMETERS :
+ *   @my_obj       : stream object
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_release(mm_stream_t *my_obj)
 {
-    int32_t rc;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
 
     /* close fd */
-    if(my_obj->fd > 0)
+    if(my_obj->fd >= 0)
     {
         close(my_obj->fd);
     }
@@ -796,46 +841,68 @@ int32_t mm_stream_release(mm_stream_t *my_obj)
     return 0;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_stream_streamon
+ *
+ * DESCRIPTION: stream on a stream. sending v4l2 request to kernel
+ *
+ * PARAMETERS :
+ *   @my_obj       : stream object
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_streamon(mm_stream_t *my_obj)
 {
     int32_t rc;
     enum v4l2_buf_type buf_type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
-    /* Add fd to data poll thread */
-    rc = mm_camera_poll_thread_add_poll_fd(&my_obj->ch_obj->poll_thread[0],
-                                           my_obj->my_hdl,
-                                           my_obj->fd,
-                                           mm_stream_data_notify,
-                                           (void*)my_obj);
-    if (rc < 0) {
-        return rc;
-    }
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
+
     rc = ioctl(my_obj->fd, VIDIOC_STREAMON, &buf_type);
     if (rc < 0) {
         CDBG_ERROR("%s: ioctl VIDIOC_STREAMON failed: rc=%d\n",
                    __func__, rc);
         /* remove fd from data poll thread in case of failure */
-        mm_camera_poll_thread_del_poll_fd(&my_obj->ch_obj->poll_thread[0], my_obj->my_hdl);
+        mm_camera_poll_thread_del_poll_fd(&my_obj->ch_obj->poll_thread[0], my_obj->my_hdl, mm_camera_sync_call);
     }
     CDBG("%s :X rc = %d",__func__,rc);
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_stream_streamoff
+ *
+ * DESCRIPTION: stream off a stream. sending v4l2 request to kernel
+ *
+ * PARAMETERS :
+ *   @my_obj       : stream object
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_streamoff(mm_stream_t *my_obj)
 {
     int32_t rc;
     enum v4l2_buf_type buf_type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
 
     /* step1: remove fd from data poll thread */
-    mm_camera_poll_thread_del_poll_fd(&my_obj->ch_obj->poll_thread[0], my_obj->my_hdl);
+    rc = mm_camera_poll_thread_del_poll_fd(&my_obj->ch_obj->poll_thread[0],
+            my_obj->my_hdl, mm_camera_sync_call);
+    if (rc < 0) {
+        /* The error might be due to async update. In this case
+         * wait for all updates to complete before proceeding. */
+        rc = mm_camera_poll_thread_commit_updates(&my_obj->ch_obj->poll_thread[0]);
+        if (rc < 0) {
+            CDBG_ERROR("%s: Poll sync failed %d",
+                 __func__, rc);
+        }
+    }
 
     /* step2: stream off */
     rc = ioctl(my_obj->fd, VIDIOC_STREAMOFF, &buf_type);
@@ -847,77 +914,29 @@ int32_t mm_stream_streamoff(mm_stream_t *my_obj)
     return rc;
 }
 
-static uint32_t mm_stream_util_get_v4l2_fmt(cam_format_t fmt,
-                                            uint8_t *num_planes)
-{
-    uint32_t val;
-    switch(fmt) {
-    case CAMERA_YUV_420_NV12:
-        val = V4L2_PIX_FMT_NV12;
-        *num_planes = 2;
-        break;
-    case CAMERA_YUV_420_NV21:
-        val = V4L2_PIX_FMT_NV21;
-        *num_planes = 2;
-        break;
-    case CAMERA_BAYER_SBGGR10:
-    case CAMERA_RDI:
-        val= V4L2_PIX_FMT_SBGGR10;
-        *num_planes = 1;
-        break;
-    case CAMERA_YUV_422_NV61:
-        val= V4L2_PIX_FMT_NV61;
-        *num_planes = 2;
-        break;
-    case CAMERA_SAEC:
-        val = V4L2_PIX_FMT_STATS_AE;
-        *num_planes = 1;
-        break;
-   case CAMERA_SAWB:
-        val = V4L2_PIX_FMT_STATS_AWB;
-        *num_planes = 1;
-        break;
-   case CAMERA_SAFC:
-        val = V4L2_PIX_FMT_STATS_AF;
-        *num_planes = 1;
-        break;
-   case CAMERA_SHST:
-        val = V4L2_PIX_FMT_STATS_IHST;
-        *num_planes = 1;
-        break;
-    case CAMERA_YUV_422_YUYV:
-        val= V4L2_PIX_FMT_YUYV;
-        *num_planes = 1;
-        break;
-    case CAMERA_YUV_420_YV12:
-        val= V4L2_PIX_FMT_NV12;
-        *num_planes = 3;
-        break;
-    default:
-        val = 0;
-        *num_planes = 0;
-        CDBG_ERROR("%s: Unknown fmt=%d", __func__, fmt);
-        break;
-    }
-    CDBG("%s: fmt=%d, val =%d, num_planes=%d", __func__, fmt, val , *num_planes);
-    return val;
-}
-
+/*===========================================================================
+ * FUNCTION   : mm_stream_read_msm_frame
+ *
+ * DESCRIPTION: dequeue a stream buffer from kernel queue
+ *
+ * PARAMETERS :
+ *   @my_obj       : stream object
+ *   @buf_info     : ptr to a struct storing buffer information
+ *   @num_planes   : number of planes in the buffer
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_read_msm_frame(mm_stream_t * my_obj,
-                                 mm_camera_buf_info_t* buf_info)
+                                 mm_camera_buf_info_t* buf_info,
+                                 uint8_t num_planes)
 {
-    int32_t idx = -1, rc = 0;
+    int32_t rc = 0;
     struct v4l2_buffer vb;
     struct v4l2_plane planes[VIDEO_MAX_PLANES];
-    uint32_t i = 0;
-    uint8_t num_planes = 0;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
-
-    mm_stream_util_get_v4l2_fmt(my_obj->fmt.fmt,
-                                &num_planes);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
 
     memset(&vb,  0,  sizeof(vb));
     vb.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
@@ -930,6 +949,14 @@ int32_t mm_stream_read_msm_frame(mm_stream_t * my_obj,
         CDBG_ERROR("%s: VIDIOC_DQBUF ioctl call failed (rc=%d)\n",
                    __func__, rc);
     } else {
+        pthread_mutex_lock(&my_obj->buf_lock);
+        my_obj->queued_buffer_count--;
+        if(my_obj->queued_buffer_count == 0) {
+            CDBG_HIGH("%s: Stoping poll on stream %p type :%d", __func__, my_obj, my_obj->stream_info->stream_type);
+            mm_camera_poll_thread_del_poll_fd(&my_obj->ch_obj->poll_thread[0], my_obj->my_hdl, mm_camera_async_call);
+            CDBG_HIGH("%s: Stopped poll on stream %p type :%d", __func__, my_obj, my_obj->stream_info->stream_type);
+        }
+        pthread_mutex_unlock(&my_obj->buf_lock);
         int8_t idx = vb.index;
         buf_info->buf = &my_obj->buf[idx];
         buf_info->frame_idx = vb.sequence;
@@ -940,269 +967,238 @@ int32_t mm_stream_read_msm_frame(mm_stream_t * my_obj,
         buf_info->buf->frame_idx = vb.sequence;
         buf_info->buf->ts.tv_sec  = vb.timestamp.tv_sec;
         buf_info->buf->ts.tv_nsec = vb.timestamp.tv_usec * 1000;
-
-        for(i = 0; i < vb.length; i++) {
-            CDBG("%s plane %d addr offset: %d data offset:%d\n",
-                 __func__, i, vb.m.planes[i].reserved[0],
-                 vb.m.planes[i].data_offset);
-            buf_info->buf->planes[i].reserved[0] =
-                vb.m.planes[i].reserved[0];
-            buf_info->buf->planes[i].data_offset =
-                vb.m.planes[i].data_offset;
+        CDBG("%s: VIDIOC_DQBUF buf_index %d, frame_idx %d, stream type %d\n",
+             __func__, vb.index, buf_info->buf->frame_idx, my_obj->stream_info->stream_type);
+        if ( NULL != my_obj->mem_vtbl.clean_invalidate_buf ) {
+            rc = my_obj->mem_vtbl.clean_invalidate_buf(idx,
+                                                       my_obj->mem_vtbl.user_data);
+            if ( 0 > rc ) {
+                CDBG_ERROR("%s: Clean invalidate cache failed on buffer index: %d",
+                           __func__,
+                           idx);
+                return rc;
+            }
+        } else {
+            CDBG_ERROR(" %s : Clean invalidate cache op not supported\n", __func__);
         }
-
-
     }
+
     CDBG("%s :X rc = %d",__func__,rc);
     return rc;
 }
 
-int32_t mm_stream_get_crop(mm_stream_t *my_obj,
-                           mm_camera_rect_t *crop)
+/*===========================================================================
+ * FUNCTION   : mm_stream_set_parms
+ *
+ * DESCRIPTION: set parameters per stream
+ *
+ * PARAMETERS :
+ *   @my_obj       : stream object
+ *   @in_value     : ptr to a param struct to be set to server
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ * NOTE       : Assume the parms struct buf is already mapped to server via
+ *              domain socket. Corresponding fields of parameters to be set
+ *              are already filled in by upper layer caller.
+ *==========================================================================*/
+int32_t mm_stream_set_parm(mm_stream_t *my_obj,
+                           cam_stream_parm_buffer_t *in_value)
 {
-    struct v4l2_crop crop_info;
-    int32_t rc = 0;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
-
-    memset(&crop_info, 0, sizeof(crop_info));
-    crop_info.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-    rc = ioctl(my_obj->fd, VIDIOC_G_CROP, &crop_info);
-    if (0 == rc) {
-        crop->left = crop_info.c.left;
-        crop->top = crop_info.c.top;
-        crop->width = crop_info.c.width;
-        crop->height = crop_info.c.height;
-    }
-    CDBG("%s :X rc = %d",__func__,rc);
-    return rc;
-}
-
-int32_t mm_stream_set_parm_acquire(mm_stream_t *my_obj,
-                         void *in_value)
-{
-    int32_t rc = 0;
-    mm_evt_paylod_stream_parm_t *payload = (mm_evt_paylod_stream_parm_t *)in_value;
-    mm_camera_stream_parm_t parm_type = payload->parm_type;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d, parm_type = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state, parm_type);
-
-    switch(parm_type) {
-    case MM_CAMERA_STREAM_CID:{
-            stream_cid_t *value = (stream_cid_t *)in_value;
-            mm_stream_set_cid(my_obj,value);
-            break;
-        }
-        default:
-            CDBG_ERROR("%s : Parm -%d set is not supported here",__func__,(int)parm_type);
-            break;
-    }
-    return rc;
-}
-int32_t mm_stream_get_parm_acquire(mm_stream_t *my_obj,
-                         void *out_value)
-{
-    int32_t rc = 0;
-    mm_evt_paylod_stream_parm_t *payload = (mm_evt_paylod_stream_parm_t *)out_value;
-    mm_camera_stream_parm_t parm_type = payload->parm_type;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d, parm_type = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state, parm_type);
-
-    switch(parm_type) {
-    case MM_CAMERA_STREAM_CID:{
-            stream_cid_t *value = (stream_cid_t *)out_value;
-            rc = mm_stream_get_cid(my_obj,value);
-            break;
-        }
-        case MM_CAMERA_STREAM_CROP:{
-            mm_camera_rect_t *crop = (mm_camera_rect_t *)out_value;
-            rc = mm_stream_get_crop(my_obj, crop);
-            break;
-        }
-        default:
-            CDBG_ERROR("%s : Parm -%d get is not supported here",__func__,(int)parm_type);
-            break;
+    int32_t rc = -1;
+    int32_t value = 0;
+    if (in_value != NULL) {
+        rc = mm_camera_util_s_ctrl(my_obj->fd, CAM_PRIV_STREAM_PARM, &value);
     }
     return rc;
 }
 
-int32_t mm_stream_set_parm_config(mm_stream_t *my_obj,
-                         void *in_value)
+/*===========================================================================
+ * FUNCTION   : mm_stream_get_parms
+ *
+ * DESCRIPTION: get parameters per stream
+ *
+ * PARAMETERS :
+ *   @my_obj       : stream object
+ *   @in_value     : ptr to a param struct to be get from server
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ * NOTE       : Assume the parms struct buf is already mapped to server via
+ *              domain socket. Corresponding fields of parameters to be get
+ *              are already filled in by upper layer caller.
+ *==========================================================================*/
+int32_t mm_stream_get_parm(mm_stream_t *my_obj,
+                           cam_stream_parm_buffer_t *in_value)
 {
-    int32_t rc = 0;
-    mm_evt_paylod_stream_parm_t *payload = (mm_evt_paylod_stream_parm_t *)in_value;
-    mm_camera_stream_parm_t parm_type = payload->parm_type;
-    void *value = payload->value;
-
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d, parm_type = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state, parm_type);
-    switch(parm_type) {
-        default:
-            CDBG_ERROR("%s : Parm -%d set is not supported here",__func__,(int)parm_type);
-            break;
-    }
-    return rc;
-}
-int32_t mm_stream_get_parm_config(mm_stream_t *my_obj,
-                         void *out_value)
-{
-    int32_t rc = 0;
-    mm_evt_paylod_stream_parm_t *payload = (mm_evt_paylod_stream_parm_t *)out_value;
-
-    if(payload == NULL) {
-        CDBG_ERROR("%s : Invalid Argument",__func__);
-        return -1;
-    }
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-     "image_mode = %d, fd = %d, state = %d, parm_type = %d",
-     __func__, my_obj->inst_hdl, my_obj->my_hdl,
-     my_obj->ext_image_mode, my_obj->fd, my_obj->state, (int)payload->parm_type);
-    switch(payload->parm_type) {
-        case MM_CAMERA_STREAM_OFFSET:
-            memcpy(payload->value,(void *)&my_obj->frame_offset,sizeof(mm_camera_frame_len_offset));
-            break;
-        case MM_CAMERA_STREAM_CROP:{
-            mm_camera_rect_t *crop = (mm_camera_rect_t *)payload->value;
-            rc = mm_stream_get_crop(my_obj, crop);
-            break;
-        }
-        default:
-            CDBG_ERROR("%s : Parm -%d get is not supported here",__func__,(int)payload->parm_type);
-            break;
+    int32_t rc = -1;
+    int32_t value = 0;
+    if (in_value != NULL) {
+        rc = mm_camera_util_g_ctrl(my_obj->fd, CAM_PRIV_STREAM_PARM, &value);
     }
     return rc;
 }
 
-int32_t mm_stream_set_parm_start(mm_stream_t *my_obj,
-                         void *in_value)
+/*===========================================================================
+ * FUNCTION   : mm_stream_do_actions
+ *
+ * DESCRIPTION: request server to perform stream based actions
+ *
+ * PARAMETERS :
+ *   @my_obj       : stream object
+ *   @in_value     : ptr to a struct of actions to be performed by the server
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ * NOTE       : Assume the action struct buf is already mapped to server via
+ *              domain socket. Corresponding fields of actions to be performed
+ *              are already filled in by upper layer caller.
+ *==========================================================================*/
+int32_t mm_stream_do_action(mm_stream_t *my_obj,
+                            void *in_value)
 {
-    int32_t rc = 0;
-    mm_evt_paylod_stream_parm_t *payload = (mm_evt_paylod_stream_parm_t *)in_value;
-    mm_camera_stream_parm_t parm_type = payload->parm_type;
-    void *value = payload->value;
-
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d, parm_type = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state, parm_type);
-    switch(parm_type) {
-        default:
-            CDBG_ERROR("%s : Parm -%d set is not supported here",__func__,(int)parm_type);
-            break;
+    int32_t rc = -1;
+    int32_t value = 0;
+    if (in_value != NULL) {
+        rc = mm_camera_util_s_ctrl(my_obj->fd, CAM_PRIV_STREAM_PARM, &value);
     }
     return rc;
 }
-int32_t mm_stream_get_parm_start(mm_stream_t *my_obj,
-                         void *out_value)
-{
-    int32_t rc = 0;
-    mm_evt_paylod_stream_parm_t *payload = (mm_evt_paylod_stream_parm_t *)out_value;
 
-    if(payload == NULL) {
-        CDBG_ERROR("%s : Invalid Argument",__func__);
-        return -1;
-    }
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-     "image_mode = %d, fd = %d, state = %d, parm_type = %d",
-     __func__, my_obj->inst_hdl, my_obj->my_hdl,
-     my_obj->ext_image_mode, my_obj->fd, my_obj->state, (int)payload->parm_type);
-    switch(payload->parm_type) {
-        case MM_CAMERA_STREAM_OFFSET:
-            memcpy(payload->value,(void *)&my_obj->frame_offset,sizeof(mm_camera_frame_len_offset));
-            break;
-        case MM_CAMERA_STREAM_CROP:{
-            mm_camera_rect_t *crop = (mm_camera_rect_t *)payload->value;
-            rc = mm_stream_get_crop(my_obj, crop);
-            break;
-        }
-        default:
-            CDBG_ERROR("%s : Parm -%d get is not supported here",__func__,(int)payload->parm_type);
-            break;
-    }
-    return rc;
-}
+/*===========================================================================
+ * FUNCTION   : mm_stream_set_ext_mode
+ *
+ * DESCRIPTION: set stream extended mode to server via v4l2 ioctl
+ *
+ * PARAMETERS :
+ *   @my_obj       : stream object
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ * NOTE       : Server will return a server stream id that uniquely identify
+ *              this stream on server side. Later on communication to server
+ *              per stream should use this server stream id.
+ *==========================================================================*/
 int32_t mm_stream_set_ext_mode(mm_stream_t * my_obj)
 {
     int32_t rc = 0;
     struct v4l2_streamparm s_parm;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
 
-    s_parm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-    s_parm.parm.capture.extendedmode = my_obj->ext_image_mode;
+    memset(&s_parm, 0, sizeof(s_parm));
+    s_parm.type =  V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 
     rc = ioctl(my_obj->fd, VIDIOC_S_PARM, &s_parm);
-        CDBG("%s:stream fd=%d, rc=%d, extended_mode=%d\n",
-                 __func__, my_obj->fd, rc,
-                 s_parm.parm.capture.extendedmode);
+    CDBG("%s:stream fd=%d, rc=%d, extended_mode=%d\n",
+         __func__, my_obj->fd, rc, s_parm.parm.capture.extendedmode);
+    if (rc == 0) {
+        /* get server stream id */
+        my_obj->server_stream_id = s_parm.parm.capture.extendedmode;
+    }
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_stream_qbuf
+ *
+ * DESCRIPTION: enqueue buffer back to kernel queue for furture use
+ *
+ * PARAMETERS :
+ *   @my_obj       : stream object
+ *   @buf          : ptr to a struct storing buffer information
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_qbuf(mm_stream_t *my_obj, mm_camera_buf_def_t *buf)
 {
-    int32_t i, rc = 0;
-    int *ret;
+    int32_t rc = 0;
     struct v4l2_buffer buffer;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
+    struct v4l2_plane planes[VIDEO_MAX_PLANES];
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
 
+    memcpy(planes, buf->planes, sizeof(planes));
     memset(&buffer, 0, sizeof(buffer));
     buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     buffer.memory = V4L2_MEMORY_USERPTR;
     buffer.index = buf->buf_idx;
-    buffer.m.planes = &buf->planes[0];
+    buffer.m.planes = &planes[0];
     buffer.length = buf->num_planes;
 
-    CDBG("%s:stream_hdl=%d,fd=%d,frame idx=%d,num_planes = %d\n", __func__,
-         buf->stream_id, buf->fd, buffer.index, buffer.length);
+    CDBG("%s:plane 0: stream_hdl=%d,fd=%d,frame idx=%d,num_planes = %d, offset = %d, data_offset = %d\n", __func__,
+         buf->stream_id, buf->fd, buffer.index, buffer.length, buf->planes[0].reserved[0], buf->planes[0].data_offset);
+    CDBG("%s:plane 1: stream_hdl=%d,fd=%d,frame idx=%d,num_planes = %d, offset = %d, data_offset = %d\n", __func__,
+         buf->stream_id, buf->fd, buffer.index, buffer.length, buf->planes[1].reserved[0], buf->planes[1].data_offset);
+
+    if ( NULL != my_obj->mem_vtbl.invalidate_buf ) {
+        rc = my_obj->mem_vtbl.invalidate_buf(buffer.index,
+                                             my_obj->mem_vtbl.user_data);
+        if ( 0 > rc ) {
+            CDBG_ERROR("%s: Cache invalidate failed on buffer index: %d",
+                       __func__,
+                       buffer.index);
+            return rc;
+        }
+    } else {
+        CDBG_ERROR("%s: Cache invalidate op not added", __func__);
+    }
+
+    my_obj->queued_buffer_count++;
+    if(my_obj->queued_buffer_count == 1) {
+        /* Add fd to data poll thread */
+        CDBG_HIGH("%s: Starting poll on stream %p type :%d", __func__, my_obj,my_obj->stream_info->stream_type);
+        rc = mm_camera_poll_thread_add_poll_fd(&my_obj->ch_obj->poll_thread[0],
+                my_obj->my_hdl,
+                my_obj->fd,
+                mm_stream_data_notify,
+                (void*)my_obj,
+                mm_camera_async_call);
+        CDBG_HIGH("%s: Started poll on stream %p type :%d", __func__, my_obj,my_obj->stream_info->stream_type);
+        if (rc < 0) {
+            CDBG_ERROR("%s: add poll fd error", __func__);
+            return rc;
+        }
+    }
 
     rc = ioctl(my_obj->fd, VIDIOC_QBUF, &buffer);
     CDBG("%s: qbuf idx:%d, rc:%d", __func__, buffer.index, rc);
     return rc;
 }
 
-/* This function let kernel know amount of buffers will be registered */
+/*===========================================================================
+ * FUNCTION   : mm_stream_request_buf
+ *
+ * DESCRIPTION: This function let kernel know the amount of buffers need to
+ *              be registered via v4l2 ioctl.
+ *
+ * PARAMETERS :
+ *   @my_obj       : stream object
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_request_buf(mm_stream_t * my_obj)
 {
     int32_t rc = 0;
-    uint8_t i,reg = 0;
     struct v4l2_requestbuffers bufreq;
     uint8_t buf_num = my_obj->buf_num;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
 
     if(buf_num > MM_CAMERA_MAX_NUM_FRAMES) {
         CDBG_ERROR("%s: buf num %d > max limit %d\n",
-                 __func__, buf_num, MM_CAMERA_MAX_NUM_FRAMES);
+                   __func__, buf_num, MM_CAMERA_MAX_NUM_FRAMES);
         return -1;
     }
-    pthread_mutex_lock(&my_obj->buf_lock);
-    for(i = 0; i < buf_num; i++){
-        if (my_obj->buf_status[i].initial_reg_flag){
-            reg = 1;
-            break;
-        }
-    }
-    pthread_mutex_unlock(&my_obj->buf_lock);
-    if(!reg) {
-        //No need to register a buffer
-        CDBG_ERROR("No Need to register this buffer");
-        return rc;
-    }
+
     memset(&bufreq, 0, sizeof(bufreq));
     bufreq.count = buf_num;
     bufreq.type  = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
@@ -1216,180 +1212,296 @@ int32_t mm_stream_request_buf(mm_stream_t * my_obj)
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_stream_map_buf
+ *
+ * DESCRIPTION: mapping stream buffer via domain socket to server
+ *
+ * PARAMETERS :
+ *   @my_obj       : stream object
+ *   @buf_type     : type of buffer to be mapped. could be following values:
+ *                   CAM_MAPPING_BUF_TYPE_STREAM_BUF
+ *                   CAM_MAPPING_BUF_TYPE_STREAM_INFO
+ *                   CAM_MAPPING_BUF_TYPE_OFFLINE_INPUT_BUF
+ *   @frame_idx    : index of buffer within the stream buffers, only valid if
+ *                   buf_type is CAM_MAPPING_BUF_TYPE_STREAM_BUF or
+ *                   CAM_MAPPING_BUF_TYPE_OFFLINE_INPUT_BUF
+ *   @plane_idx    : plane index. If all planes share the same fd,
+ *                   plane_idx = -1; otherwise, plean_idx is the
+ *                   index to plane (0..num_of_planes)
+ *   @fd           : file descriptor of the buffer
+ *   @size         : size of the buffer
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_stream_map_buf(mm_stream_t * my_obj,
+                          uint8_t buf_type,
+                          uint32_t frame_idx,
+                          int32_t plane_idx,
+                          int fd,
+                          uint32_t size)
+{
+    if (NULL == my_obj || NULL == my_obj->ch_obj || NULL == my_obj->ch_obj->cam_obj) {
+        CDBG_ERROR("%s: NULL obj of stream/channel/camera", __func__);
+        return -1;
+    }
+
+    cam_sock_packet_t packet;
+    memset(&packet, 0, sizeof(cam_sock_packet_t));
+    packet.msg_type = CAM_MAPPING_TYPE_FD_MAPPING;
+    packet.payload.buf_map.type = buf_type;
+    packet.payload.buf_map.fd = fd;
+    packet.payload.buf_map.size = size;
+    packet.payload.buf_map.stream_id = my_obj->server_stream_id;
+    packet.payload.buf_map.frame_idx = frame_idx;
+    packet.payload.buf_map.plane_idx = plane_idx;
+    return mm_camera_util_sendmsg(my_obj->ch_obj->cam_obj,
+                                  &packet,
+                                  sizeof(cam_sock_packet_t),
+                                  fd);
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_stream_unmap_buf
+ *
+ * DESCRIPTION: unmapping stream buffer via domain socket to server
+ *
+ * PARAMETERS :
+ *   @my_obj       : stream object
+ *   @buf_type     : type of buffer to be unmapped. could be following values:
+ *                   CAM_MAPPING_BUF_TYPE_STREAM_BUF
+ *                   CAM_MAPPING_BUF_TYPE_STREAM_INFO
+ *                   CAM_MAPPING_BUF_TYPE_OFFLINE_INPUT_BUF
+ *   @frame_idx    : index of buffer within the stream buffers, only valid if
+ *                   buf_type is CAM_MAPPING_BUF_TYPE_STREAM_BUF or
+ *                   CAM_MAPPING_BUF_TYPE_OFFLINE_INPUT_BUF
+ *   @plane_idx    : plane index. If all planes share the same fd,
+ *                   plane_idx = -1; otherwise, plean_idx is the
+ *                   index to plane (0..num_of_planes)
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_stream_unmap_buf(mm_stream_t * my_obj,
+                            uint8_t buf_type,
+                            uint32_t frame_idx,
+                            int32_t plane_idx)
+{
+    if (NULL == my_obj || NULL == my_obj->ch_obj || NULL == my_obj->ch_obj->cam_obj) {
+        CDBG_ERROR("%s: NULL obj of stream/channel/camera", __func__);
+        return -1;
+    }
+
+    cam_sock_packet_t packet;
+    memset(&packet, 0, sizeof(cam_sock_packet_t));
+    packet.msg_type = CAM_MAPPING_TYPE_FD_UNMAPPING;
+    packet.payload.buf_unmap.type = buf_type;
+    packet.payload.buf_unmap.stream_id = my_obj->server_stream_id;
+    packet.payload.buf_unmap.frame_idx = frame_idx;
+    packet.payload.buf_unmap.plane_idx = plane_idx;
+    return mm_camera_util_sendmsg(my_obj->ch_obj->cam_obj,
+                                  &packet,
+                                  sizeof(cam_sock_packet_t),
+                                  0);
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_stream_map_buf_ops
+ *
+ * DESCRIPTION: ops for mapping stream buffer via domain socket to server.
+ *              This function will be passed to upper layer as part of ops table
+ *              to be used by upper layer when allocating stream buffers and mapping
+ *              buffers to server via domain socket.
+ *
+ * PARAMETERS :
+ *   @frame_idx    : index of buffer within the stream buffers, only valid if
+ *                   buf_type is CAM_MAPPING_BUF_TYPE_STREAM_BUF or
+ *                   CAM_MAPPING_BUF_TYPE_OFFLINE_INPUT_BUF
+ *   @plane_idx    : plane index. If all planes share the same fd,
+ *                   plane_idx = -1; otherwise, plean_idx is the
+ *                   index to plane (0..num_of_planes)
+ *   @fd           : file descriptor of the buffer
+ *   @size         : size of the buffer
+ *   @userdata     : user data ptr (stream object)
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+static int32_t mm_stream_map_buf_ops(uint32_t frame_idx,
+                                     int32_t plane_idx,
+                                     int fd,
+                                     uint32_t size,
+                                     void *userdata)
+{
+    mm_stream_t *my_obj = (mm_stream_t *)userdata;
+    return mm_stream_map_buf(my_obj,
+                             CAM_MAPPING_BUF_TYPE_STREAM_BUF,
+                             frame_idx, plane_idx, fd, size);
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_stream_unmap_buf_ops
+ *
+ * DESCRIPTION: ops for unmapping stream buffer via domain socket to server.
+ *              This function will be passed to upper layer as part of ops table
+ *              to be used by upper layer when allocating stream buffers and unmapping
+ *              buffers to server via domain socket.
+ *
+ * PARAMETERS :
+ *   @frame_idx    : index of buffer within the stream buffers, only valid if
+ *                   buf_type is CAM_MAPPING_BUF_TYPE_STREAM_BUF or
+ *                   CAM_MAPPING_BUF_TYPE_OFFLINE_INPUT_BUF
+ *   @plane_idx    : plane index. If all planes share the same fd,
+ *                   plane_idx = -1; otherwise, plean_idx is the
+ *                   index to plane (0..num_of_planes)
+ *   @userdata     : user data ptr (stream object)
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+static int32_t mm_stream_unmap_buf_ops(uint32_t frame_idx,
+                                       int32_t plane_idx,
+                                       void *userdata)
+{
+    mm_stream_t *my_obj = (mm_stream_t *)userdata;
+    return mm_stream_unmap_buf(my_obj,
+                               CAM_MAPPING_BUF_TYPE_STREAM_BUF,
+                               frame_idx,
+                               plane_idx);
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_stream_init_bufs
+ *
+ * DESCRIPTION: initialize stream buffers needed. This function will request
+ *              buffers needed from upper layer through the mem ops table passed
+ *              during configuration stage.
+ *
+ * PARAMETERS :
+ *   @my_obj  : stream object
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_init_bufs(mm_stream_t * my_obj)
 {
-    int32_t i, rc = 0, j;
-    int image_type;
-    mm_camear_mem_vtbl_t *mem_vtbl = NULL;
-    mm_camera_frame_len_offset frame_offset;
+    int32_t i, rc = 0;
     uint8_t *reg_flags = NULL;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
 
     /* deinit buf if it's not NULL*/
     if (NULL != my_obj->buf) {
         mm_stream_deinit_bufs(my_obj);
     }
 
-    my_obj->buf_num = my_obj->hal_requested_num_bufs;
-    if (mm_camera_util_get_pp_mask(my_obj->ch_obj->cam_obj) > 0) {
-        /* reserve extra one buf for pp */
-        my_obj->buf_num++;
-    }
+    my_obj->map_ops.map_ops = mm_stream_map_buf_ops;
+    my_obj->map_ops.unmap_ops = mm_stream_unmap_buf_ops;
+    my_obj->map_ops.userdata = my_obj;
 
-    my_obj->buf =
-        (mm_camera_buf_def_t*)malloc(sizeof(mm_camera_buf_def_t) * my_obj->buf_num);
-    my_obj->buf_status =
-        (mm_stream_buf_status_t*)malloc(sizeof(mm_stream_buf_status_t) * my_obj->buf_num);
-    reg_flags = (uint8_t *)malloc(sizeof(uint8_t) * my_obj->buf_num);
-
-    if (NULL == my_obj->buf ||
-        NULL == my_obj->buf_status ||
-        NULL == reg_flags) {
-        CDBG_ERROR("%s: No memory for buf", __func__);
-        rc = -1;
-        goto error_malloc;
-    }
-
-    memset(my_obj->buf, 0, sizeof(mm_camera_buf_def_t) * my_obj->buf_num);
-    memset(my_obj->buf_status, 0, sizeof(mm_stream_buf_status_t) * my_obj->buf_num);
-    memset(reg_flags, 0, sizeof(uint8_t) * my_obj->buf_num);
-
-    mem_vtbl = my_obj->ch_obj->cam_obj->mem_vtbl;
-    rc = mem_vtbl->get_buf(my_obj->ch_obj->cam_obj->my_hdl,
-                           my_obj->ch_obj->my_hdl,
-                           my_obj->my_hdl,
-                           mem_vtbl->user_data,
-                           &my_obj->frame_offset,
-                           my_obj->buf_num,
-                           reg_flags,
-                           my_obj->buf);
+    rc = my_obj->mem_vtbl.get_bufs(&my_obj->frame_offset,
+                                   &my_obj->buf_num,
+                                   &reg_flags,
+                                   &my_obj->buf,
+                                   &my_obj->map_ops,
+                                   my_obj->mem_vtbl.user_data);
 
     if (0 != rc) {
         CDBG_ERROR("%s: Error get buf, rc = %d\n", __func__, rc);
-        goto error_malloc;
+        return rc;
     }
 
-    for (i=0; i < my_obj->buf_num; i++) {
+    my_obj->buf_status =
+        (mm_stream_buf_status_t *)malloc(sizeof(mm_stream_buf_status_t) * my_obj->buf_num);
+
+    if (NULL == my_obj->buf_status) {
+        CDBG_ERROR("%s: No memory for buf_status", __func__);
+        mm_stream_deinit_bufs(my_obj);
+        free(reg_flags);
+        return -1;
+    }
+
+    memset(my_obj->buf_status, 0, sizeof(mm_stream_buf_status_t) * my_obj->buf_num);
+    for (i = 0; i < my_obj->buf_num; i++) {
         my_obj->buf_status[i].initial_reg_flag = reg_flags[i];
         my_obj->buf[i].stream_id = my_obj->my_hdl;
+        my_obj->buf[i].stream_type = my_obj->stream_info->stream_type;
     }
 
     free(reg_flags);
     reg_flags = NULL;
 
-    for (i=0; i < my_obj->buf_num; i++) {
-        if (my_obj->buf[i].fd > 0) {
-            if(0 >= (rc = mm_camera_map_buf(my_obj->ch_obj->cam_obj,
-                          my_obj->ext_image_mode,
-                          i,
-                          my_obj->buf[i].fd,
-                          my_obj->buf[i].frame_len)))
-            {
-                CDBG_ERROR("%s: Error mapping buf (rc = %d)", __func__, rc);
-                goto error_map;
-            }
-        } else {
-            CDBG_ERROR("%s: Invalid fd for buf idx (%d)", __func__, i);
-        }
-    }
-
-    return 0;
-
-error_map:
-    /* error, unmapping previously mapped bufs */
-    for (j=0; j<i; j++) {
-        if (my_obj->buf[j].fd > 0) {
-            mm_camera_unmap_buf(my_obj->ch_obj->cam_obj,
-                                my_obj->ext_image_mode,
-                                j);
-        }
-    }
-
-    /* put buf back */
-    mem_vtbl->put_buf(my_obj->ch_obj->cam_obj->my_hdl,
-                      my_obj->ch_obj->my_hdl,
-                      my_obj->my_hdl,
-                      mem_vtbl->user_data,
-                      my_obj->buf_num,
-                      my_obj->buf);
-
-error_malloc:
-    if (NULL != my_obj->buf) {
-        free(my_obj->buf);
-        my_obj->buf = NULL;
-    }
-    if (NULL != my_obj->buf_status) {
-        free(my_obj->buf_status);
-        my_obj->buf_status = NULL;
-    }
-    if (NULL != reg_flags) {
-        free(reg_flags);
-        reg_flags = NULL;
-    }
-
     return rc;
 }
 
-/* return buffers to surface or release buffers allocated */
+/*===========================================================================
+ * FUNCTION   : mm_stream_deinit_bufs
+ *
+ * DESCRIPTION: return stream buffers to upper layer through the mem ops table
+ *              passed during configuration stage.
+ *
+ * PARAMETERS :
+ *   @my_obj  : stream object
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_deinit_bufs(mm_stream_t * my_obj)
 {
-    int32_t rc = 0, i;
-    mm_camear_mem_vtbl_t *mem_vtbl = NULL;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
+    int32_t rc = 0;
+    mm_camera_map_unmap_ops_tbl_t ops_tbl;
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
 
     if (NULL == my_obj->buf) {
         CDBG("%s: Buf is NULL, no need to deinit", __func__);
         return rc;
     }
 
-    /* IOMMU unmapping */
-    for (i=0; i<my_obj->buf_num; i++) {
-        if (my_obj->buf[i].fd > 0) {
-            rc = mm_camera_unmap_buf(my_obj->ch_obj->cam_obj,
-                                     my_obj->ext_image_mode,
-                                     i);
-            if (rc < 0 ) {
-                CDBG_ERROR("%s: Error unmapping bufs at idx(%d) rc=%d",
-                           __func__, i, rc);
-            }
-        }
-    }
-
     /* release bufs */
-    mem_vtbl = my_obj->ch_obj->cam_obj->mem_vtbl;
-    if (NULL != mem_vtbl) {
-        rc = mem_vtbl->put_buf(my_obj->ch_obj->cam_obj->my_hdl,
-                          my_obj->ch_obj->my_hdl,
-                          my_obj->my_hdl,
-                          mem_vtbl->user_data,
-                          my_obj->buf_num,
-                          my_obj->buf);
-    } else {
-        CDBG_ERROR("%s: mem table is NULL, cannot release buf", __func__);
-        rc = -1;
-    }
+    ops_tbl.map_ops = mm_stream_map_buf_ops;
+    ops_tbl.unmap_ops = mm_stream_unmap_buf_ops;
+    ops_tbl.userdata = my_obj;
+
+    rc = my_obj->mem_vtbl.put_bufs(&ops_tbl,
+                                   my_obj->mem_vtbl.user_data);
+
     free(my_obj->buf);
     my_obj->buf = NULL;
-    free(my_obj->buf_status);
-    my_obj->buf_status = NULL;
+    if (my_obj->buf_status != NULL) {
+        free(my_obj->buf_status);
+        my_obj->buf_status = NULL;
+    }
 
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_stream_reg_buf
+ *
+ * DESCRIPTION: register buffers with kernel by calling v4l2 ioctl QBUF for
+ *              each buffer in the stream
+ *
+ * PARAMETERS :
+ *   @my_obj  : stream object
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_reg_buf(mm_stream_t * my_obj)
 {
     int32_t rc = 0;
     uint8_t i;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
 
     rc = mm_stream_request_buf(my_obj);
     if (rc != 0) {
@@ -1397,14 +1509,14 @@ int32_t mm_stream_reg_buf(mm_stream_t * my_obj)
     }
 
     pthread_mutex_lock(&my_obj->buf_lock);
+    my_obj->queued_buffer_count = 0;
     for(i = 0; i < my_obj->buf_num; i++){
-        my_obj->buf[i].buf_idx = i;
-
         /* check if need to qbuf initially */
         if (my_obj->buf_status[i].initial_reg_flag) {
             rc = mm_stream_qbuf(my_obj, &my_obj->buf[i]);
             if (rc != 0) {
-                CDBG_ERROR("%s: VIDIOC_QBUF rc = %d\n", __func__, rc);
+                CDBG_ERROR("%s: VIDIOC_QBUF rc = %d, errno is %s\n",
+                        __func__, rc, strerror(errno));
                 break;
             }
             my_obj->buf_status[i].buf_refcnt = 0;
@@ -1416,34 +1528,31 @@ int32_t mm_stream_reg_buf(mm_stream_t * my_obj)
             my_obj->buf_status[i].in_kernel = 0;
         }
     }
-
     pthread_mutex_unlock(&my_obj->buf_lock);
+
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_stream_unreg buf
+ *
+ * DESCRIPTION: unregister all stream buffers from kernel
+ *
+ * PARAMETERS :
+ *   @my_obj  : stream object
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_unreg_buf(mm_stream_t * my_obj)
 {
     struct v4l2_requestbuffers bufreq;
-    int32_t i, rc = 0,reg = 0;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
+    int32_t i, rc = 0;
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
 
-    pthread_mutex_lock(&my_obj->buf_lock);
-    if (NULL != my_obj->buf_status) {
-        for(i = 0; i < my_obj->buf_num; i++){
-            if (my_obj->buf_status[i].initial_reg_flag){
-                reg = 1;
-                break;
-            }
-        }
-    }
-    pthread_mutex_unlock(&my_obj->buf_lock);
-    if(!reg) {
-        //No need to unregister a buffer
-        goto end;
-    }
+    /* unreg buf to kernel */
     bufreq.count = 0;
     bufreq.type  = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     bufreq.memory = V4L2_MEMORY_USERPTR;
@@ -1453,7 +1562,6 @@ int32_t mm_stream_unreg_buf(mm_stream_t * my_obj)
               __func__, my_obj->fd, rc);
     }
 
-end:
     /* reset buf reference count */
     pthread_mutex_lock(&my_obj->buf_lock);
     if (NULL != my_obj->buf_status) {
@@ -1467,201 +1575,989 @@ end:
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_stream_get_v4l2_fmt
+ *
+ * DESCRIPTION: translate camera image format into FOURCC code
+ *
+ * PARAMETERS :
+ *   @fmt     : camera image format
+ *
+ * RETURN     : FOURCC code for image format
+ *==========================================================================*/
+uint32_t mm_stream_get_v4l2_fmt(cam_format_t fmt)
+{
+    uint32_t val;
+    switch(fmt) {
+    case CAM_FORMAT_YUV_420_NV12:
+        val = V4L2_PIX_FMT_NV12;
+        break;
+    case CAM_FORMAT_YUV_420_NV21:
+        val = V4L2_PIX_FMT_NV21;
+        break;
+    case CAM_FORMAT_BAYER_QCOM_RAW_10BPP_GBRG:
+    case CAM_FORMAT_BAYER_QCOM_RAW_10BPP_GRBG:
+    case CAM_FORMAT_BAYER_QCOM_RAW_10BPP_RGGB:
+    case CAM_FORMAT_BAYER_QCOM_RAW_10BPP_BGGR:
+        val= V4L2_PIX_FMT_SBGGR10;
+        break;
+    case CAM_FORMAT_YUV_422_NV61:
+        val= V4L2_PIX_FMT_NV61;
+        break;
+    case CAM_FORMAT_YUV_RAW_8BIT_YUYV:
+        val= V4L2_PIX_FMT_YUYV;
+        break;
+    case CAM_FORMAT_YUV_RAW_8BIT_YVYU:
+        val= V4L2_PIX_FMT_YVYU;
+        break;
+    case CAM_FORMAT_YUV_RAW_8BIT_UYVY:
+        val= V4L2_PIX_FMT_UYVY;
+        break;
+    case CAM_FORMAT_YUV_RAW_8BIT_VYUY:
+        val= V4L2_PIX_FMT_VYUY;
+        break;
+    case CAM_FORMAT_YUV_420_YV12:
+        val= V4L2_PIX_FMT_NV12;
+        break;
+    case CAM_FORMAT_YUV_422_NV16:
+        val= V4L2_PIX_FMT_NV16;
+        break;
+    default:
+        val = 0;
+        CDBG_ERROR("%s: Unknown fmt=%d", __func__, fmt);
+        break;
+    }
+    CDBG("%s: fmt=%d, val =%d", __func__, fmt, val);
+    return val;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_stream_calc_offset_preview
+ *
+ * DESCRIPTION: calculate preview/postview frame offset based on format and
+ *              padding information
+ *
+ * PARAMETERS :
+ *   @fmt     : image format
+ *   @dim     : image dimension
+ *   @buf_planes : [out] buffer plane information
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_stream_calc_offset_preview(cam_format_t fmt,
+                                      cam_dimension_t *dim,
+                                      cam_stream_buf_plane_info_t *buf_planes)
+{
+    int32_t rc = 0;
+    int stride = 0, scanline = 0;
+
+    switch (fmt) {
+    case CAM_FORMAT_YUV_420_NV12:
+    case CAM_FORMAT_YUV_420_NV21:
+        /* 2 planes: Y + CbCr */
+        buf_planes->plane_info.num_planes = 2;
+
+        stride = PAD_TO_SIZE(dim->width, CAM_PAD_TO_16);
+        scanline = PAD_TO_SIZE(dim->height, CAM_PAD_TO_2);
+        buf_planes->plane_info.mp[0].offset = 0;
+        buf_planes->plane_info.mp[0].len = stride * scanline;
+        buf_planes->plane_info.mp[0].offset_x = 0;
+        buf_planes->plane_info.mp[0].offset_y = 0;
+        buf_planes->plane_info.mp[0].stride = stride;
+        buf_planes->plane_info.mp[0].scanline = scanline;
+
+        stride = PAD_TO_SIZE(dim->width, CAM_PAD_TO_16);
+        scanline = PAD_TO_SIZE(dim->height / 2, CAM_PAD_TO_2);
+        buf_planes->plane_info.mp[1].offset = 0;
+        buf_planes->plane_info.mp[1].len =
+            stride * scanline;
+        buf_planes->plane_info.mp[1].offset_x = 0;
+        buf_planes->plane_info.mp[1].offset_y = 0;
+        buf_planes->plane_info.mp[1].stride = stride;
+        buf_planes->plane_info.mp[1].scanline = scanline;
+
+        buf_planes->plane_info.frame_len =
+            PAD_TO_SIZE(buf_planes->plane_info.mp[0].len +
+                        buf_planes->plane_info.mp[1].len,
+                        CAM_PAD_TO_4K);
+        break;
+    case CAM_FORMAT_YUV_420_NV21_ADRENO:
+        /* 2 planes: Y + CbCr */
+        buf_planes->plane_info.num_planes = 2;
+
+        stride = PAD_TO_SIZE(dim->width, CAM_PAD_TO_32);
+        scanline = PAD_TO_SIZE(dim->height, CAM_PAD_TO_32);
+        buf_planes->plane_info.mp[0].offset = 0;
+        buf_planes->plane_info.mp[0].len =
+            PAD_TO_SIZE(stride * scanline,
+                        CAM_PAD_TO_4K);
+        buf_planes->plane_info.mp[0].offset_x = 0;
+        buf_planes->plane_info.mp[0].offset_y = 0;
+        buf_planes->plane_info.mp[0].stride = stride;
+        buf_planes->plane_info.mp[0].scanline = scanline;
+
+        stride = PAD_TO_SIZE(dim->width / 2, CAM_PAD_TO_32) * 2;
+        scanline = PAD_TO_SIZE(dim->height / 2, CAM_PAD_TO_32);
+        buf_planes->plane_info.mp[1].offset = 0;
+        buf_planes->plane_info.mp[1].len =
+            PAD_TO_SIZE(stride * scanline,
+                        CAM_PAD_TO_4K);
+        buf_planes->plane_info.mp[1].offset_x = 0;
+        buf_planes->plane_info.mp[1].offset_y = 0;
+        buf_planes->plane_info.mp[1].stride = stride;
+        buf_planes->plane_info.mp[1].scanline = scanline;
+
+        buf_planes->plane_info.frame_len =
+            PAD_TO_SIZE(buf_planes->plane_info.mp[0].len +
+                        buf_planes->plane_info.mp[1].len,
+                        CAM_PAD_TO_4K);
+        break;
+    case CAM_FORMAT_YUV_420_YV12:
+        /* 3 planes: Y + Cr + Cb */
+        buf_planes->plane_info.num_planes = 3;
+
+        stride = PAD_TO_SIZE(dim->width, CAM_PAD_TO_16);
+        scanline = PAD_TO_SIZE(dim->height, CAM_PAD_TO_2);
+        buf_planes->plane_info.mp[0].offset = 0;
+        buf_planes->plane_info.mp[0].len = stride * scanline;
+        buf_planes->plane_info.mp[0].offset_x = 0;
+        buf_planes->plane_info.mp[0].offset_y = 0;
+        buf_planes->plane_info.mp[0].stride = stride;
+        buf_planes->plane_info.mp[0].scanline = scanline;
+
+        stride = PAD_TO_SIZE(stride / 2, CAM_PAD_TO_16);
+        scanline = scanline / 2;
+        buf_planes->plane_info.mp[1].offset = 0;
+        buf_planes->plane_info.mp[1].len =
+            stride * scanline;
+        buf_planes->plane_info.mp[1].offset_x = 0;
+        buf_planes->plane_info.mp[1].offset_y = 0;
+        buf_planes->plane_info.mp[1].stride = stride;
+        buf_planes->plane_info.mp[1].scanline = scanline;
+
+        buf_planes->plane_info.mp[2].offset = 0;
+        buf_planes->plane_info.mp[2].len =
+            stride * scanline;
+        buf_planes->plane_info.mp[2].offset_x = 0;
+        buf_planes->plane_info.mp[2].offset_y = 0;
+        buf_planes->plane_info.mp[2].stride = stride;
+        buf_planes->plane_info.mp[2].scanline = scanline;
+
+        buf_planes->plane_info.frame_len =
+            PAD_TO_SIZE(buf_planes->plane_info.mp[0].len +
+                        buf_planes->plane_info.mp[1].len +
+                        buf_planes->plane_info.mp[2].len,
+                        CAM_PAD_TO_4K);
+        break;
+    case CAM_FORMAT_YUV_422_NV16:
+    case CAM_FORMAT_YUV_422_NV61:
+        /* 2 planes: Y + CbCr */
+        buf_planes->plane_info.num_planes = 2;
+
+        stride = PAD_TO_SIZE(dim->width, CAM_PAD_TO_16);
+        scanline = dim->height;
+        buf_planes->plane_info.mp[0].offset = 0;
+        buf_planes->plane_info.mp[0].len = stride * scanline;
+        buf_planes->plane_info.mp[0].offset_x = 0;
+        buf_planes->plane_info.mp[0].offset_y = 0;
+        buf_planes->plane_info.mp[0].stride = stride;
+        buf_planes->plane_info.mp[0].scanline = scanline;
+
+        buf_planes->plane_info.mp[1].offset = 0;
+        buf_planes->plane_info.mp[1].len = stride * scanline;
+        buf_planes->plane_info.mp[1].offset_x = 0;
+        buf_planes->plane_info.mp[1].offset_y = 0;
+        buf_planes->plane_info.mp[1].stride = stride;
+        buf_planes->plane_info.mp[1].scanline = scanline;
+
+        buf_planes->plane_info.frame_len =
+            PAD_TO_SIZE(buf_planes->plane_info.mp[0].len +
+                        buf_planes->plane_info.mp[1].len,
+                        CAM_PAD_TO_4K);
+        break;
+    default:
+        CDBG_ERROR("%s: Invalid cam_format for preview %d",
+                   __func__, fmt);
+        rc = -1;
+        break;
+    }
+
+    return rc;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_stream_calc_offset_snapshot
+ *
+ * DESCRIPTION: calculate snapshot/postproc frame offset based on format and
+ *              padding information
+ *
+ * PARAMETERS :
+ *   @fmt     : image format
+ *   @dim     : image dimension
+ *   @padding : padding information
+ *   @buf_planes : [out] buffer plane information
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_stream_calc_offset_snapshot(cam_format_t fmt,
+                                       cam_dimension_t *dim,
+                                       cam_padding_info_t *padding,
+                                       cam_stream_buf_plane_info_t *buf_planes)
+{
+    int32_t rc = 0;
+    uint8_t isAFamily = mm_camera_util_chip_is_a_family();
+    int offset_x = 0, offset_y = 0;
+    int stride = 0, scanline = 0;
+
+    if (isAFamily) {
+        stride = dim->width;
+        scanline = PAD_TO_SIZE(dim->height, CAM_PAD_TO_16);
+        offset_x = 0;
+        offset_y = scanline - dim->height;
+        scanline += offset_y; /* double padding */
+    } else {
+        stride = PAD_TO_SIZE(dim->width,
+                             padding->width_padding);
+        scanline = PAD_TO_SIZE(dim->height,
+                               padding->height_padding);
+        offset_x = 0;
+        offset_y = 0;
+    }
+
+    switch (fmt) {
+    case CAM_FORMAT_YUV_420_NV12:
+    case CAM_FORMAT_YUV_420_NV21:
+        /* 2 planes: Y + CbCr */
+        buf_planes->plane_info.num_planes = 2;
+
+        buf_planes->plane_info.mp[0].len =
+            PAD_TO_SIZE(stride * scanline,
+                        padding->plane_padding);
+        buf_planes->plane_info.mp[0].offset =
+            PAD_TO_SIZE(offset_x + stride * offset_y,
+                        padding->plane_padding);
+        buf_planes->plane_info.mp[0].offset_x = offset_x;
+        buf_planes->plane_info.mp[0].offset_y = offset_y;
+        buf_planes->plane_info.mp[0].stride = stride;
+        buf_planes->plane_info.mp[0].scanline = scanline;
+
+        scanline = scanline / 2;
+        buf_planes->plane_info.mp[1].len =
+            PAD_TO_SIZE(stride * scanline,
+                        padding->plane_padding);
+        buf_planes->plane_info.mp[1].offset =
+            PAD_TO_SIZE(offset_x + stride * offset_y,
+                        padding->plane_padding);
+        buf_planes->plane_info.mp[1].offset_x = offset_x;
+        buf_planes->plane_info.mp[1].offset_y = offset_y;
+        buf_planes->plane_info.mp[1].stride = stride;
+        buf_planes->plane_info.mp[1].scanline = scanline;
+
+        buf_planes->plane_info.frame_len =
+            PAD_TO_SIZE(buf_planes->plane_info.mp[0].len +
+                        buf_planes->plane_info.mp[1].len,
+                        CAM_PAD_TO_4K);
+        break;
+    case CAM_FORMAT_YUV_420_YV12:
+        /* 3 planes: Y + Cr + Cb */
+        buf_planes->plane_info.num_planes = 3;
+
+        buf_planes->plane_info.mp[0].offset =
+            PAD_TO_SIZE(offset_x + stride * offset_y,
+                        padding->plane_padding);
+        buf_planes->plane_info.mp[0].len =
+            PAD_TO_SIZE(stride * scanline, padding->plane_padding);
+        buf_planes->plane_info.mp[0].offset_x = offset_x;
+        buf_planes->plane_info.mp[0].offset_y = offset_y;
+        buf_planes->plane_info.mp[0].stride = stride;
+        buf_planes->plane_info.mp[0].scanline = scanline;
+
+        stride = PAD_TO_SIZE(stride / 2, CAM_PAD_TO_16);
+        scanline = scanline / 2;
+        buf_planes->plane_info.mp[1].offset =
+            PAD_TO_SIZE(offset_x + stride * offset_y,
+                        padding->plane_padding);
+        buf_planes->plane_info.mp[1].len =
+            PAD_TO_SIZE(stride * scanline, padding->plane_padding);
+        buf_planes->plane_info.mp[1].offset_x = offset_x;
+        buf_planes->plane_info.mp[1].offset_y = offset_y;
+        buf_planes->plane_info.mp[1].stride = stride;
+        buf_planes->plane_info.mp[1].scanline = scanline;
+
+        buf_planes->plane_info.mp[2].offset =
+            PAD_TO_SIZE(offset_x + stride * offset_y,
+                        padding->plane_padding);
+        buf_planes->plane_info.mp[2].len =
+            PAD_TO_SIZE(stride * scanline, padding->plane_padding);
+        buf_planes->plane_info.mp[2].offset_x = offset_x;
+        buf_planes->plane_info.mp[2].offset_y = offset_y;
+        buf_planes->plane_info.mp[2].stride = stride;
+        buf_planes->plane_info.mp[2].scanline = scanline;
+
+        buf_planes->plane_info.frame_len =
+            PAD_TO_SIZE(buf_planes->plane_info.mp[0].len +
+                        buf_planes->plane_info.mp[1].len +
+                        buf_planes->plane_info.mp[2].len,
+                        CAM_PAD_TO_4K);
+        break;
+    case CAM_FORMAT_YUV_422_NV16:
+    case CAM_FORMAT_YUV_422_NV61:
+        /* 2 planes: Y + CbCr */
+        buf_planes->plane_info.num_planes = 2;
+        buf_planes->plane_info.mp[0].len =
+            PAD_TO_SIZE(stride * scanline, padding->plane_padding);
+        buf_planes->plane_info.mp[0].offset =
+            PAD_TO_SIZE(offset_x + stride * offset_y,
+                        padding->plane_padding);
+        buf_planes->plane_info.mp[0].offset_x = offset_x;
+        buf_planes->plane_info.mp[0].offset_y = offset_y;
+        buf_planes->plane_info.mp[0].stride = stride;
+        buf_planes->plane_info.mp[0].scanline = scanline;
+
+        buf_planes->plane_info.mp[1].len =
+            PAD_TO_SIZE(stride * scanline, padding->plane_padding);
+        buf_planes->plane_info.mp[1].offset =
+            PAD_TO_SIZE(offset_x + stride * offset_y,
+                        padding->plane_padding);
+        buf_planes->plane_info.mp[1].offset_x = offset_x;
+        buf_planes->plane_info.mp[1].offset_y = offset_y;
+        buf_planes->plane_info.mp[1].stride = stride;
+        buf_planes->plane_info.mp[1].scanline = scanline;
+
+        buf_planes->plane_info.frame_len = PAD_TO_SIZE(
+            buf_planes->plane_info.mp[0].len + buf_planes->plane_info.mp[1].len,
+            CAM_PAD_TO_4K);
+        break;
+    default:
+        CDBG_ERROR("%s: Invalid cam_format for snapshot %d",
+                   __func__, fmt);
+        rc = -1;
+        break;
+    }
+
+    return rc;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_stream_calc_offset_raw
+ *
+ * DESCRIPTION: calculate raw frame offset based on format and padding information
+ *
+ * PARAMETERS :
+ *   @fmt     : image format
+ *   @dim     : image dimension
+ *   @padding : padding information
+ *   @buf_planes : [out] buffer plane information
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_stream_calc_offset_raw(cam_format_t fmt,
+                                  cam_dimension_t *dim,
+                                  cam_padding_info_t *padding,
+                                  cam_stream_buf_plane_info_t *buf_planes)
+{
+    int32_t rc = 0;
+    int stride = 0;
+    int scanline = dim->height;
+
+    switch (fmt) {
+    case CAM_FORMAT_YUV_RAW_8BIT_YUYV:
+    case CAM_FORMAT_YUV_RAW_8BIT_YVYU:
+    case CAM_FORMAT_YUV_RAW_8BIT_UYVY:
+    case CAM_FORMAT_YUV_RAW_8BIT_VYUY:
+    case CAM_FORMAT_JPEG_RAW_8BIT:
+    case CAM_FORMAT_META_RAW_8BIT:
+        /* 1 plane */
+        /* Every 16 pixels occupy 16 bytes */
+        stride = PAD_TO_SIZE(dim->width, CAM_PAD_TO_16);
+        buf_planes->plane_info.num_planes = 1;
+        buf_planes->plane_info.mp[0].offset = 0;
+        buf_planes->plane_info.mp[0].len =
+            PAD_TO_SIZE(stride * scanline * 2, padding->plane_padding);
+        buf_planes->plane_info.frame_len =
+            PAD_TO_SIZE(buf_planes->plane_info.mp[0].len, CAM_PAD_TO_4K);
+        buf_planes->plane_info.mp[0].offset_x =0;
+        buf_planes->plane_info.mp[0].offset_y = 0;
+        buf_planes->plane_info.mp[0].stride = stride;
+        buf_planes->plane_info.mp[0].scanline = scanline;
+        break;
+    case CAM_FORMAT_BAYER_QCOM_RAW_8BPP_GBRG:
+    case CAM_FORMAT_BAYER_QCOM_RAW_8BPP_GRBG:
+    case CAM_FORMAT_BAYER_QCOM_RAW_8BPP_RGGB:
+    case CAM_FORMAT_BAYER_QCOM_RAW_8BPP_BGGR:
+    case CAM_FORMAT_BAYER_MIPI_RAW_8BPP_GBRG:
+    case CAM_FORMAT_BAYER_MIPI_RAW_8BPP_GRBG:
+    case CAM_FORMAT_BAYER_MIPI_RAW_8BPP_RGGB:
+    case CAM_FORMAT_BAYER_MIPI_RAW_8BPP_BGGR:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_QCOM_8BPP_GBRG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_QCOM_8BPP_GRBG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_QCOM_8BPP_RGGB:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_QCOM_8BPP_BGGR:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_MIPI_8BPP_GBRG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_MIPI_8BPP_GRBG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_MIPI_8BPP_RGGB:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_MIPI_8BPP_BGGR:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_PLAIN8_8BPP_GBRG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_PLAIN8_8BPP_GRBG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_PLAIN8_8BPP_RGGB:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_PLAIN8_8BPP_BGGR:
+        /* 1 plane */
+        /* Every 16 pixels occupy 16 bytes */
+        stride = PAD_TO_SIZE(dim->width, CAM_PAD_TO_16);
+        buf_planes->plane_info.num_planes = 1;
+        buf_planes->plane_info.mp[0].offset = 0;
+        buf_planes->plane_info.mp[0].len =
+            PAD_TO_SIZE(stride * scanline, padding->plane_padding);
+        buf_planes->plane_info.frame_len =
+            PAD_TO_SIZE(buf_planes->plane_info.mp[0].len, CAM_PAD_TO_4K);
+        buf_planes->plane_info.mp[0].offset_x =0;
+        buf_planes->plane_info.mp[0].offset_y = 0;
+        buf_planes->plane_info.mp[0].stride = stride;
+        buf_planes->plane_info.mp[0].scanline = scanline;
+        break;
+    case CAM_FORMAT_BAYER_QCOM_RAW_10BPP_GBRG:
+    case CAM_FORMAT_BAYER_QCOM_RAW_10BPP_GRBG:
+    case CAM_FORMAT_BAYER_QCOM_RAW_10BPP_RGGB:
+    case CAM_FORMAT_BAYER_QCOM_RAW_10BPP_BGGR:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_QCOM_10BPP_GBRG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_QCOM_10BPP_GRBG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_QCOM_10BPP_RGGB:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_QCOM_10BPP_BGGR:
+        /* Every 12 pixels occupy 16 bytes */
+        stride = (dim->width + 11)/12 * 16;
+        buf_planes->plane_info.num_planes = 1;
+        buf_planes->plane_info.mp[0].offset = 0;
+        buf_planes->plane_info.mp[0].len =
+            PAD_TO_SIZE(stride * scanline, padding->plane_padding);
+        buf_planes->plane_info.frame_len =
+            PAD_TO_SIZE(buf_planes->plane_info.mp[0].len, CAM_PAD_TO_4K);
+        buf_planes->plane_info.mp[0].offset_x =0;
+        buf_planes->plane_info.mp[0].offset_y = 0;
+        buf_planes->plane_info.mp[0].stride = stride;
+        buf_planes->plane_info.mp[0].scanline = scanline;
+        break;
+    case CAM_FORMAT_BAYER_QCOM_RAW_12BPP_GBRG:
+    case CAM_FORMAT_BAYER_QCOM_RAW_12BPP_GRBG:
+    case CAM_FORMAT_BAYER_QCOM_RAW_12BPP_RGGB:
+    case CAM_FORMAT_BAYER_QCOM_RAW_12BPP_BGGR:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_QCOM_12BPP_GBRG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_QCOM_12BPP_GRBG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_QCOM_12BPP_RGGB:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_QCOM_12BPP_BGGR:
+        /* Every 10 pixels occupy 16 bytes */
+        stride = (dim->width + 9)/10 * 16;
+        buf_planes->plane_info.num_planes = 1;
+        buf_planes->plane_info.mp[0].offset = 0;
+        buf_planes->plane_info.mp[0].len =
+            PAD_TO_SIZE(stride * scanline, padding->plane_padding);
+        buf_planes->plane_info.frame_len =
+            PAD_TO_SIZE(buf_planes->plane_info.mp[0].len, CAM_PAD_TO_4K);
+        buf_planes->plane_info.mp[0].offset_x =0;
+        buf_planes->plane_info.mp[0].offset_y = 0;
+        buf_planes->plane_info.mp[0].stride = stride;
+        buf_planes->plane_info.mp[0].scanline = scanline;
+        break;
+    case CAM_FORMAT_BAYER_MIPI_RAW_10BPP_GBRG:
+    case CAM_FORMAT_BAYER_MIPI_RAW_10BPP_GRBG:
+    case CAM_FORMAT_BAYER_MIPI_RAW_10BPP_RGGB:
+    case CAM_FORMAT_BAYER_MIPI_RAW_10BPP_BGGR:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_MIPI_10BPP_GBRG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_MIPI_10BPP_GRBG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_MIPI_10BPP_RGGB:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_MIPI_10BPP_BGGR:
+        /* Every 64 pixels occupy 80 bytes */
+        stride = PAD_TO_SIZE(
+                PAD_TO_SIZE(dim->width, CAM_PAD_TO_4)*5/4, CAM_PAD_TO_16);
+        buf_planes->plane_info.num_planes = 1;
+        buf_planes->plane_info.mp[0].offset = 0;
+        buf_planes->plane_info.mp[0].len =
+            PAD_TO_SIZE(stride * scanline, padding->plane_padding);
+        buf_planes->plane_info.frame_len =
+            PAD_TO_SIZE(buf_planes->plane_info.mp[0].len, CAM_PAD_TO_4K);
+        buf_planes->plane_info.mp[0].offset_x =0;
+        buf_planes->plane_info.mp[0].offset_y = 0;
+        buf_planes->plane_info.mp[0].stride = stride;
+        buf_planes->plane_info.mp[0].scanline = scanline;
+        break;
+    case CAM_FORMAT_BAYER_MIPI_RAW_12BPP_GBRG:
+    case CAM_FORMAT_BAYER_MIPI_RAW_12BPP_GRBG:
+    case CAM_FORMAT_BAYER_MIPI_RAW_12BPP_RGGB:
+    case CAM_FORMAT_BAYER_MIPI_RAW_12BPP_BGGR:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_MIPI_12BPP_GBRG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_MIPI_12BPP_GRBG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_MIPI_12BPP_RGGB:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_MIPI_12BPP_BGGR:
+        /* Every 32 pixels occupy 48 bytes */
+        stride = PAD_TO_SIZE(PAD_TO_SIZE(dim->width, 2)*3/2, CAM_PAD_TO_16);
+        buf_planes->plane_info.num_planes = 1;
+        buf_planes->plane_info.mp[0].offset = 0;
+        buf_planes->plane_info.mp[0].len =
+            PAD_TO_SIZE(stride * scanline, padding->plane_padding);
+        buf_planes->plane_info.frame_len =
+            PAD_TO_SIZE(buf_planes->plane_info.mp[0].len, CAM_PAD_TO_4K);
+        buf_planes->plane_info.mp[0].offset_x =0;
+        buf_planes->plane_info.mp[0].offset_y = 0;
+        buf_planes->plane_info.mp[0].stride = stride;
+        buf_planes->plane_info.mp[0].scanline = scanline;
+        break;
+    case CAM_FORMAT_BAYER_IDEAL_RAW_PLAIN16_8BPP_GBRG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_PLAIN16_8BPP_GRBG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_PLAIN16_8BPP_RGGB:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_PLAIN16_8BPP_BGGR:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_PLAIN16_10BPP_GBRG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_PLAIN16_10BPP_GRBG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_PLAIN16_10BPP_RGGB:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_PLAIN16_10BPP_BGGR:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_PLAIN16_12BPP_GBRG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_PLAIN16_12BPP_GRBG:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_PLAIN16_12BPP_RGGB:
+    case CAM_FORMAT_BAYER_IDEAL_RAW_PLAIN16_12BPP_BGGR:
+        /* Every 8 pixels occupy 16 bytes */
+        stride = PAD_TO_SIZE(dim->width, CAM_PAD_TO_8) * 2;
+        buf_planes->plane_info.num_planes = 1;
+        buf_planes->plane_info.mp[0].offset = 0;
+        buf_planes->plane_info.mp[0].len =
+            PAD_TO_SIZE(stride * scanline, padding->plane_padding);
+        buf_planes->plane_info.frame_len =
+            PAD_TO_SIZE(buf_planes->plane_info.mp[0].len, CAM_PAD_TO_4K);
+        buf_planes->plane_info.mp[0].offset_x =0;
+        buf_planes->plane_info.mp[0].offset_y = 0;
+        buf_planes->plane_info.mp[0].stride = stride;
+        buf_planes->plane_info.mp[0].scanline = scanline;
+        break;
+    default:
+        CDBG_ERROR("%s: Invalid cam_format %d for raw stream",
+                   __func__, fmt);
+        rc = -1;
+        break;
+    }
+
+    return rc;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_stream_calc_offset_video
+ *
+ * DESCRIPTION: calculate video frame offset based on format and
+ *              padding information
+ *
+ * PARAMETERS :
+ *   @dim     : image dimension
+ *   @buf_planes : [out] buffer plane information
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+#ifdef VENUS_PRESENT
+int32_t mm_stream_calc_offset_video(cam_dimension_t *dim,
+                                    cam_stream_buf_plane_info_t *buf_planes)
+{
+    int stride = 0, scanline = 0;
+
+    // using Venus
+    stride = VENUS_Y_STRIDE(COLOR_FMT_NV12, dim->width);
+    scanline = VENUS_Y_SCANLINES(COLOR_FMT_NV12, dim->height);
+
+    buf_planes->plane_info.frame_len =
+        VENUS_BUFFER_SIZE(COLOR_FMT_NV12, dim->width, dim->height);
+    buf_planes->plane_info.num_planes = 2;
+    buf_planes->plane_info.mp[0].len = stride * scanline;
+    buf_planes->plane_info.mp[0].offset = 0;
+    buf_planes->plane_info.mp[0].offset_x =0;
+    buf_planes->plane_info.mp[0].offset_y = 0;
+    buf_planes->plane_info.mp[0].stride = stride;
+    buf_planes->plane_info.mp[0].scanline = scanline;
+    stride = VENUS_UV_STRIDE(COLOR_FMT_NV12, dim->width);
+    scanline = VENUS_UV_SCANLINES(COLOR_FMT_NV12, dim->height);
+    buf_planes->plane_info.mp[1].len =
+        buf_planes->plane_info.frame_len - buf_planes->plane_info.mp[0].len;
+    buf_planes->plane_info.mp[1].offset = 0;
+    buf_planes->plane_info.mp[1].offset_x =0;
+    buf_planes->plane_info.mp[1].offset_y = 0;
+    buf_planes->plane_info.mp[1].stride = stride;
+    buf_planes->plane_info.mp[1].scanline = scanline;
+
+    return 0;
+}
+#else
+int32_t mm_stream_calc_offset_video(cam_dimension_t *dim,
+                                    cam_stream_buf_plane_info_t *buf_planes)
+{
+    int stride = 0, scanline = 0;
+
+    buf_planes->plane_info.num_planes = 2;
+
+    stride = dim->width;
+    scanline = dim->height;
+    buf_planes->plane_info.mp[0].len =
+        PAD_TO_SIZE(stride * scanline, CAM_PAD_TO_2K);
+    buf_planes->plane_info.mp[0].offset = 0;
+    buf_planes->plane_info.mp[0].offset_x =0;
+    buf_planes->plane_info.mp[0].offset_y = 0;
+    buf_planes->plane_info.mp[0].stride = stride;
+    buf_planes->plane_info.mp[0].scanline = scanline;
+
+    stride = dim->width;
+    scanline = dim->height / 2;
+    buf_planes->plane_info.mp[1].len =
+        PAD_TO_SIZE(stride * scanline, CAM_PAD_TO_2K);
+    buf_planes->plane_info.mp[1].offset = 0;
+    buf_planes->plane_info.mp[1].offset_x =0;
+    buf_planes->plane_info.mp[1].offset_y = 0;
+    buf_planes->plane_info.mp[1].stride = stride;
+    buf_planes->plane_info.mp[1].scanline = scanline;
+
+    buf_planes->plane_info.frame_len =
+        PAD_TO_SIZE(buf_planes->plane_info.mp[0].len +
+                    buf_planes->plane_info.mp[1].len,
+                    CAM_PAD_TO_4K);
+
+    return 0;
+}
+#endif
+
+/*===========================================================================
+ * FUNCTION   : mm_stream_calc_offset_metadata
+ *
+ * DESCRIPTION: calculate metadata frame offset based on format and
+ *              padding information
+ *
+ * PARAMETERS :
+ *   @dim     : image dimension
+ *   @padding : padding information
+ *   @buf_planes : [out] buffer plane information
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_stream_calc_offset_metadata(cam_dimension_t *dim,
+                                       cam_padding_info_t *padding,
+                                       cam_stream_buf_plane_info_t *buf_planes)
+{
+    int32_t rc = 0;
+    buf_planes->plane_info.num_planes = 1;
+    buf_planes->plane_info.mp[0].offset = 0;
+    buf_planes->plane_info.mp[0].len =
+        PAD_TO_SIZE(dim->width * dim->height, padding->plane_padding);
+    buf_planes->plane_info.frame_len =
+        buf_planes->plane_info.mp[0].len;
+
+    buf_planes->plane_info.mp[0].offset_x =0;
+    buf_planes->plane_info.mp[0].offset_y = 0;
+    buf_planes->plane_info.mp[0].stride = dim->width;
+    buf_planes->plane_info.mp[0].scanline = dim->height;
+    return rc;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_stream_calc_offset_postproc
+ *
+ * DESCRIPTION: calculate postprocess frame offset
+ *
+ * PARAMETERS :
+ *   @stream_info: ptr to stream info
+ *   @padding : padding information
+ *   @buf_planes : [out] buffer plane information
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_stream_calc_offset_postproc(cam_stream_info_t *stream_info,
+                                       cam_padding_info_t *padding,
+                                       cam_stream_buf_plane_info_t *buf_planes)
+{
+    int32_t rc = 0;
+    cam_stream_type_t type = CAM_STREAM_TYPE_DEFAULT;
+    if (stream_info->reprocess_config.pp_type == CAM_OFFLINE_REPROCESS_TYPE) {
+        type = stream_info->reprocess_config.offline.input_stream_type;
+        if (CAM_STREAM_TYPE_DEFAULT == type) {
+            if (buf_planes->plane_info.frame_len == 0) {
+                // take offset from input source
+                *buf_planes = stream_info->reprocess_config.offline.input_buf_planes;
+                return rc;
+            }
+        } else {
+            type = stream_info->reprocess_config.offline.input_stream_type;
+        }
+    } else {
+        type = stream_info->reprocess_config.online.input_stream_type;
+    }
+
+    switch (type) {
+    case CAM_STREAM_TYPE_PREVIEW:
+    case CAM_STREAM_TYPE_CALLBACK:
+    case CAM_STREAM_TYPE_POSTVIEW:
+        rc = mm_stream_calc_offset_preview(stream_info->fmt,
+                                           &stream_info->dim,
+                                           buf_planes);
+        break;
+    case CAM_STREAM_TYPE_SNAPSHOT:
+    case CAM_STREAM_TYPE_NON_ZSL_SNAPSHOT:
+        rc = mm_stream_calc_offset_snapshot(stream_info->fmt,
+                                            &stream_info->dim,
+                                            padding,
+                                            buf_planes);
+        break;
+    case CAM_STREAM_TYPE_VIDEO:
+        rc = mm_stream_calc_offset_video(&stream_info->dim,
+                                         buf_planes);
+        break;
+    case CAM_STREAM_TYPE_RAW:
+        rc = mm_stream_calc_offset_raw(stream_info->fmt,
+                                       &stream_info->dim,
+                                       padding,
+                                       buf_planes);
+        break;
+    case CAM_STREAM_TYPE_METADATA:
+        rc = mm_stream_calc_offset_metadata(&stream_info->dim,
+                                            padding,
+                                            buf_planes);
+        break;
+    default:
+        CDBG_ERROR("%s: not supported for stream type %d",
+                   __func__, type);
+        rc = -1;
+        break;
+    }
+    return rc;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_stream_calc_offset
+ *
+ * DESCRIPTION: calculate frame offset based on format and padding information
+ *
+ * PARAMETERS :
+ *   @my_obj  : stream object
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_stream_calc_offset(mm_stream_t *my_obj)
+{
+    int32_t rc = 0;
+
+    cam_dimension_t dim = my_obj->stream_info->dim;
+    if (my_obj->stream_info->pp_config.feature_mask & CAM_QCOM_FEATURE_ROTATION) {
+        if (my_obj->stream_info->pp_config.rotation == ROTATE_90 ||
+            my_obj->stream_info->pp_config.rotation == ROTATE_270) {
+            // rotated by 90 or 270, need to switch width and height
+            dim.width = my_obj->stream_info->dim.height;
+            dim.height = my_obj->stream_info->dim.width;
+        }
+    }
+
+    switch (my_obj->stream_info->stream_type) {
+    case CAM_STREAM_TYPE_PREVIEW:
+    case CAM_STREAM_TYPE_CALLBACK:
+    case CAM_STREAM_TYPE_POSTVIEW:
+        rc = mm_stream_calc_offset_preview(my_obj->stream_info->fmt,
+                                           &dim,
+                                           &my_obj->stream_info->buf_planes);
+        break;
+    case CAM_STREAM_TYPE_SNAPSHOT:
+    case CAM_STREAM_TYPE_NON_ZSL_SNAPSHOT:
+        rc = mm_stream_calc_offset_snapshot(my_obj->stream_info->fmt,
+                                            &dim,
+                                            &my_obj->padding_info,
+                                            &my_obj->stream_info->buf_planes);
+        break;
+    case CAM_STREAM_TYPE_OFFLINE_PROC:
+        rc = mm_stream_calc_offset_postproc(my_obj->stream_info,
+                                            &my_obj->padding_info,
+                                            &my_obj->stream_info->buf_planes);
+        break;
+    case CAM_STREAM_TYPE_VIDEO:
+        rc = mm_stream_calc_offset_video(&dim,
+                                         &my_obj->stream_info->buf_planes);
+        break;
+    case CAM_STREAM_TYPE_RAW:
+        rc = mm_stream_calc_offset_raw(my_obj->stream_info->fmt,
+                                       &dim,
+                                       &my_obj->padding_info,
+                                       &my_obj->stream_info->buf_planes);
+        break;
+    case CAM_STREAM_TYPE_METADATA:
+        rc = mm_stream_calc_offset_metadata(&dim,
+                                            &my_obj->padding_info,
+                                            &my_obj->stream_info->buf_planes);
+        break;
+    default:
+        CDBG_ERROR("%s: not supported for stream type %d",
+                   __func__, my_obj->stream_info->stream_type);
+        rc = -1;
+        break;
+    }
+
+    my_obj->frame_offset = my_obj->stream_info->buf_planes.plane_info;
+    return rc;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_stream_sync_info
+ *
+ * DESCRIPTION: synchronize stream information with server
+ *
+ * PARAMETERS :
+ *   @my_obj  : stream object
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ * NOTE       : assume stream info buffer is mapped to server and filled in with
+ *              stream information by upper layer. This call will let server to
+ *              synchornize the stream information with HAL. If server find any
+ *              fields that need to be changed accroding to hardware configuration,
+ *              server will modify corresponding fields so that HAL could know
+ *              about it.
+ *==========================================================================*/
+int32_t mm_stream_sync_info(mm_stream_t *my_obj)
+{
+    int32_t rc = 0;
+    int32_t value = 0;
+    my_obj->stream_info->stream_svr_id = my_obj->server_stream_id;
+    rc = mm_stream_calc_offset(my_obj);
+
+    if (rc == 0) {
+        rc = mm_camera_util_s_ctrl(my_obj->fd,
+                                   CAM_PRIV_STREAM_INFO_SYNC,
+                                   &value);
+    }
+    return rc;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_stream_set_fmt
+ *
+ * DESCRIPTION: set stream format to kernel via v4l2 ioctl
+ *
+ * PARAMETERS :
+ *   @my_obj  : stream object
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_set_fmt(mm_stream_t *my_obj)
 {
     int32_t rc = 0;
     struct v4l2_format fmt;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
+    struct msm_v4l2_format_data msm_fmt;
+    int i;
 
-    if(my_obj->fmt.width == 0 || my_obj->fmt.height == 0) {
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
+
+    if (my_obj->stream_info->dim.width == 0 ||
+        my_obj->stream_info->dim.height == 0) {
         CDBG_ERROR("%s:invalid input[w=%d,h=%d,fmt=%d]\n",
-                 __func__, my_obj->fmt.width, my_obj->fmt.height, my_obj->fmt.fmt);
+                   __func__,
+                   my_obj->stream_info->dim.width,
+                   my_obj->stream_info->dim.height,
+                   my_obj->stream_info->fmt);
         return -1;
     }
 
     memset(&fmt, 0, sizeof(fmt));
+    memset(&msm_fmt, 0, sizeof(msm_fmt));
     fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-    fmt.fmt.pix_mp.width = my_obj->fmt.width;
-    fmt.fmt.pix_mp.height= my_obj->fmt.height;
-    fmt.fmt.pix_mp.field = V4L2_FIELD_NONE;
-    fmt.fmt.pix_mp.pixelformat =
-            mm_stream_util_get_v4l2_fmt(my_obj->fmt.fmt,
-                                      &(fmt.fmt.pix_mp.num_planes));
+    msm_fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+    msm_fmt.width = my_obj->stream_info->dim.width;
+    msm_fmt.height = my_obj->stream_info->dim.height;
+    msm_fmt.pixelformat = mm_stream_get_v4l2_fmt(my_obj->stream_info->fmt);
+    msm_fmt.num_planes = my_obj->frame_offset.num_planes;
+    for (i = 0; i < msm_fmt.num_planes; i++) {
+        msm_fmt.plane_sizes[i] = my_obj->frame_offset.mp[i].len;
+    }
+
+    memcpy(fmt.fmt.raw_data, &msm_fmt, sizeof(msm_fmt));
     rc = ioctl(my_obj->fd, VIDIOC_S_FMT, &fmt);
-    CDBG("%s:fd=%d, ext_image_mode=%d, rc=%d, fmt.fmt.pix_mp.pixelformat : 0x%x\n",
-       __func__, my_obj->fd, my_obj->ext_image_mode, rc,
-       fmt.fmt.pix_mp.pixelformat);
     return rc;
 }
 
-int32_t mm_stream_get_offset(mm_stream_t *my_obj)
-{
-    int32_t rc = 0;
-    cam_frame_resolution_t frame_offset;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
-
-    memset(&my_obj->frame_offset,0,sizeof(mm_camera_frame_len_offset));
-
-    frame_offset.format = my_obj->fmt.fmt;
-    frame_offset.rotation = my_obj->fmt.rotation;
-    frame_offset.width = my_obj->fmt.width;
-    frame_offset.height = my_obj->fmt.height;
-    frame_offset.image_mode = my_obj->ext_image_mode;
-    if (!my_obj->need_stream_on &&
-        my_obj->ext_image_mode == MSM_V4L2_EXT_CAPTURE_MODE_MAIN) {
-        /* in case of video-sized snapshot,
-         * image_mode should be video when querying frame offset*/
-        frame_offset.image_mode = MSM_V4L2_EXT_CAPTURE_MODE_VIDEO;
-    }
-
-    switch (frame_offset.image_mode) {
-    case MSM_V4L2_EXT_CAPTURE_MODE_PREVIEW:
-        if (CAMERA_YUV_420_YV12 == frame_offset.format) {
-            frame_offset.padding_format = CAMERA_PAD_TO_2K;
-        } else {
-            frame_offset.padding_format = CAMERA_PAD_TO_WORD;
-        }
-        break;
-    case MSM_V4L2_EXT_CAPTURE_MODE_MAIN:
-    case MSM_V4L2_EXT_CAPTURE_MODE_RAW:
-    case MSM_V4L2_EXT_CAPTURE_MODE_THUMBNAIL:
-    case MSM_V4L2_EXT_CAPTURE_MODE_RDI:
-        frame_offset.padding_format = CAMERA_PAD_TO_WORD;
-        break;
-    case MSM_V4L2_EXT_CAPTURE_MODE_AEC:
-    case MSM_V4L2_EXT_CAPTURE_MODE_AWB:
-    case MSM_V4L2_EXT_CAPTURE_MODE_AF:
-    case MSM_V4L2_EXT_CAPTURE_MODE_IHIST:
-        break;
-    case MSM_V4L2_EXT_CAPTURE_MODE_VIDEO:
-    default:
-        frame_offset.padding_format = CAMERA_PAD_TO_2K;
-        break;
-    }
-
-    CDBG("%s: format = %d, image_mode = %d, padding_format = %d, rotation = %d,"
-            "width = %d height = %d",
-             __func__,frame_offset.format,frame_offset.image_mode,frame_offset.padding_format,
-             frame_offset.rotation,frame_offset.width,frame_offset.height);
-
-    rc = mm_camera_send_native_ctrl_cmd(my_obj->ch_obj->cam_obj,
-                                            CAMERA_GET_PARM_FRAME_RESOLUTION,
-                                            sizeof(cam_frame_resolution_t),
-                                            &frame_offset);
-    if(rc != 0) {
-        CDBG_ERROR("%s: Failed to get the stream offset and frame length",__func__);
-        return rc;
-    }
-    my_obj->fmt.width = frame_offset.width;
-    my_obj->fmt.height = frame_offset.height;
-    memcpy(&my_obj->frame_offset,&frame_offset.frame_offset,sizeof(mm_camera_frame_len_offset));
-    CDBG("%s: Frame length = %d width = %d, height = %d, rc = %d",
-         __func__,my_obj->frame_offset.frame_len,my_obj->fmt.width,my_obj->fmt.height,rc);
-    return rc;
-}
-
-
-int32_t mm_stream_set_cid(mm_stream_t *my_obj,stream_cid_t *value)
-{
-    int32_t rc = 0;
-    cam_cid_info_t cam_cid_info;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
-
-    cam_cid_info.num_cids = 1;
-    cam_cid_info.cid_entries[0].cid = value->cid;
-    cam_cid_info.cid_entries[0].dt = value->dt;
-    cam_cid_info.cid_entries[0].inst_handle = my_obj->inst_hdl;
-
-    rc = mm_camera_send_native_ctrl_cmd(my_obj->ch_obj->cam_obj,
-                                            CAMERA_SET_PARM_CID,
-                                            sizeof(cam_cid_info_t),
-                                            &cam_cid_info);
-    if(rc != 0) {
-        CDBG_ERROR("%s: Failed to set the CID",__func__);
-        return rc;
-    }
-    return rc;
-}
-
-int32_t mm_stream_get_cid(mm_stream_t *my_obj,stream_cid_t *out_value)
-{
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
-    //TODO: Need to use sensor structure init in camera query
-    int32_t rc = 0;
-    return rc;
-}
-
+/*===========================================================================
+ * FUNCTION   : mm_stream_buf_done
+ *
+ * DESCRIPTION: enqueue buffer back to kernel
+ *
+ * PARAMETERS :
+ *   @my_obj       : stream object
+ *   @frame        : frame to be enqueued back to kernel
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_buf_done(mm_stream_t * my_obj,
                            mm_camera_buf_def_t *frame)
 {
     int32_t rc = 0;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
-
-    if (my_obj->is_local_buf) {
-        /* special case for video-sized live snapshot
-         * buf is local, no need to qbuf to kernel */
-        return 0;
-    }
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
 
     pthread_mutex_lock(&my_obj->buf_lock);
-
     if(my_obj->buf_status[frame->buf_idx].buf_refcnt == 0) {
-        CDBG("%s: Error Trying to free second time?(idx=%d) count=%d, ext_image_mode=%d\n",
+        CDBG("%s: Error Trying to free second time?(idx=%d) count=%d\n",
                    __func__, frame->buf_idx,
-                   my_obj->buf_status[frame->buf_idx].buf_refcnt,
-                   my_obj->ext_image_mode);
+                   my_obj->buf_status[frame->buf_idx].buf_refcnt);
         rc = -1;
     }else{
         my_obj->buf_status[frame->buf_idx].buf_refcnt--;
         if (0 == my_obj->buf_status[frame->buf_idx].buf_refcnt) {
-            CDBG("<DEBUG> : Buf done for buffer:%d:%d", my_obj->ext_image_mode, frame->buf_idx);
+            CDBG("<DEBUG> : Buf done for buffer:%d, stream:%d", frame->buf_idx, frame->stream_type);
             rc = mm_stream_qbuf(my_obj, frame);
             if(rc < 0) {
-                CDBG_ERROR("%s: mm_camera_stream_qbuf(idx=%d) err=%d\n",
-                     __func__, frame->buf_idx, rc);
+                CDBG_ERROR("%s: mm_camera_stream_qbuf(idx=%d) errno=%d, %s\n",
+                           __func__, frame->buf_idx, errno, strerror(errno));
             } else {
                 my_obj->buf_status[frame->buf_idx].in_kernel = 1;
             }
         }else{
             CDBG("<DEBUG> : Still ref count pending count :%d",
                  my_obj->buf_status[frame->buf_idx].buf_refcnt);
-            CDBG("<DEBUG> : for buffer:%p:%d, ext_image_mode=%d",
-                 my_obj, frame->buf_idx, my_obj->ext_image_mode);
+            CDBG("<DEBUG> : for buffer:%p:%d",
+                 my_obj, frame->buf_idx);
         }
     }
     pthread_mutex_unlock(&my_obj->buf_lock);
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_stream_reg_buf_cb
+ *
+ * DESCRIPTION: Allow other stream to register dataCB at this stream.
+ *
+ * PARAMETERS :
+ *   @my_obj       : stream object
+ *   @val          : ptr to info about the callback to be registered
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_stream_reg_buf_cb(mm_stream_t *my_obj,
                              mm_stream_data_cb_t *val)
 {
     int32_t rc = -1;
     uint8_t i;
-    CDBG("%s: E, inst_handle = 0x%x, my_handle = 0x%x, "
-         "image_mode = %d, fd = %d, state = %d",
-         __func__, my_obj->inst_hdl, my_obj->my_hdl,
-         my_obj->ext_image_mode, my_obj->fd, my_obj->state);
+    CDBG("%s: E, my_handle = 0x%x, fd = %d, state = %d",
+         __func__, my_obj->my_hdl, my_obj->fd, my_obj->state);
 
     pthread_mutex_lock(&my_obj->cb_lock);
     for (i=0 ;i < MM_CAMERA_STREAM_BUF_CB_MAX; i++) {
         if(NULL == my_obj->buf_cb[i].cb) {
-            memcpy(&my_obj->buf_cb[i], val, sizeof(mm_stream_data_cb_t));
+            my_obj->buf_cb[i] = *val;
             rc = 0;
             break;
         }
