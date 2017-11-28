@@ -11,6 +11,8 @@ LOCAL_CLANG_CFLAGS += \
         -Wno-error=sign-compare
 
 LOCAL_SRC_FILES := \
+        wrapper/CameraWrapper.cpp \
+        wrapper/Camera3Wrapper.cpp
         QCamera2Factory.cpp \
         QCamera2Hal.cpp \
         QCamera2HWI.cpp \
@@ -67,12 +69,28 @@ endif
 LOCAL_C_INCLUDES += $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr/include
 LOCAL_C_INCLUDES += $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr/include/media
 LOCAL_ADDITIONAL_DEPENDENCIES := $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr
+LOCAL_C_INCLUDES += \
+    system/core/include \
+    system/core/base/include \
+    system/media/camera/include
 
-LOCAL_SHARED_LIBRARIES := libcamera_client liblog libhardware libutils libcutils libdl libsensor
-LOCAL_SHARED_LIBRARIES += libmmcamera_interface libmmjpeg_interface
-LOCAL_SHARED_LIBRARIES += libhidltransport libsensor android.hidl.token@1.0-utils android.hardware.graphics.bufferqueue@1.0
-LOCAL_STATIC_LIBRARIES := libarect
+LOCAL_STATIC_LIBRARIES := \
+    libbase \
+    libarect
 
+LOCAL_SHARED_LIBRARIES := \
+    libcamera_client \ 
+    liblog \
+    libhardware \ 
+    libutils \
+    libcutils \ 
+    libdl \ 
+    libmmcamera_interface \ 
+    libmmjpeg_interface \
+    android.hidl.token@1.0-utils \ 
+    android.hardware.graphics.bufferqueue@1.0
+
+LOCAL_32_BIT_ONLY := true 
 LOCAL_MODULE_RELATIVE_PATH := hw
 LOCAL_MODULE := camera.$(TARGET_BOARD_PLATFORM)
 LOCAL_MODULE_TAGS := optional
