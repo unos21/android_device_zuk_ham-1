@@ -97,6 +97,11 @@ PRODUCT_PACKAGES += \
 
 # Camera
 PRODUCT_PACKAGES += \
+    libqomx_core \
+    libmmcamera_interface \
+    libmmjpeg_interface \
+    mm-jpeg-interface-test \
+    mm-qcamera-app \
     android.hardware.camera.provider@2.4-impl \
     camera.device@1.0-impl \
     camera.msm8974 \
