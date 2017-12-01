@@ -1,4 +1,4 @@
-/* Copyright (c) 2012, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -27,57 +27,55 @@
  *
  */
 
-/* This file is a slave copy from /vendor/qcom/propreitary/mm-cammera/common,
- * Please do not modify it directly here. */
+#ifndef __MM_JPEG_IONBUF_H__
+#define __MM_JPEG_IONBUF_H__
 
-#ifndef __CAMLIST_H
-#define __CAMLIST_H
 
-#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
+#include <linux/msm_ion.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
+#include "mm_jpeg_dbg.h"
 
-#define member_of(ptr, type, member) ({ \
-  const __typeof__(((type *)0)->member) *__mptr = (ptr); \
-  (type *)((char *)__mptr - offsetof(type,member));})
+typedef struct  {
+  struct ion_fd_data ion_info_fd;
+  struct ion_allocation_data alloc;
+  int p_pmem_fd;
+  long size;
+  int ion_fd;
+  uint8_t *addr;
+} buffer_test_t;
 
-struct cam_list {
-  struct cam_list *next, *prev;
-};
+/** buffer_allocate:
+ *
+ *  Arguments:
+ *     @p_buffer: ION buffer
+ *
+ *  Return:
+ *     buffer address
+ *
+ *  Description:
+ *      allocates ION buffer
+ *
+ **/
+void* buffer_allocate(buffer_test_t *p_buffer);
 
-static inline void cam_list_init(struct cam_list *ptr)
-{
-  ptr->next = ptr;
-  ptr->prev = ptr;
-}
+/** buffer_deallocate:
+ *
+ *  Arguments:
+ *     @p_buffer: ION buffer
+ *
+ *  Return:
+ *     buffer address
+ *
+ *  Description:
+ *      deallocates ION buffer
+ *
+ **/
+int buffer_deallocate(buffer_test_t *p_buffer);
 
-static inline void cam_list_add_tail_node(struct cam_list *item,
-  struct cam_list *head)
-{
-  struct cam_list *prev = head->prev;
+#endif
 
-  head->prev = item;
-  item->next = head;
-  item->prev = prev;
-  prev->next = item;
-}
-
-static inline void cam_list_insert_before_node(struct cam_list *item,
-  struct cam_list *node)
-{
-  item->next = node;
-  item->prev = node->prev;
-  item->prev->next = item;
-  node->prev = item;
-}
-
-static inline void cam_list_del_node(struct cam_list *ptr)
-{
-  struct cam_list *prev = ptr->prev;
-  struct cam_list *next = ptr->next;
-
-  next->prev = ptr->prev;
-  prev->next = ptr->next;
-  ptr->next = ptr;
-  ptr->prev = ptr;
-}
-
-#endif /* __CAMLIST_H */

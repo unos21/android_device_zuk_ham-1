@@ -1,31 +1,31 @@
-/*
-Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-    * Redistributions of source code must retain the above copyright
-      notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above
-      copyright notice, this list of conditions and the following
-      disclaimer in the documentation and/or other materials provided
-      with the distribution.
-    * Neither the name of The Linux Foundation nor the names of its
-      contributors may be used to endorse or promote products derived
-      from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
-WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
-ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
-BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
-BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
-WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
-OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
-IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are
+ * met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above
+ *       copyright notice, this list of conditions and the following
+ *       disclaimer in the documentation and/or other materials provided
+ *       with the distribution.
+ *     * Neither the name of The Linux Foundation nor the names of its
+ *       contributors may be used to endorse or promote products derived
+ *       from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
+ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+ * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+ * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ */
 
 #include <pthread.h>
 #include <errno.h>
@@ -34,7 +34,8 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <poll.h>
-#include <semaphore.h>
+
+#include <cam_semaphore.h>
 
 #include "mm_camera_dbg.h"
 #include "mm_camera_sock.h"
@@ -48,33 +49,29 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     ((parm_arr[parm/32]>>(parm%32))& 0x1)
 
 /* internal function declare */
-int32_t mm_camera_send_native_ctrl_cmd(mm_camera_obj_t * my_obj,
-                                       cam_ctrl_type type,
-                                       uint32_t length,
-                                       void *value);
-int32_t mm_camera_send_native_ctrl_timeout_cmd(mm_camera_obj_t * my_obj,
-                                               cam_ctrl_type type,
-                                               uint32_t length,
-                                               void *value,
-                                               int timeout);
-int mm_camera_evt_sub(mm_camera_obj_t * my_obj,
-                      mm_camera_event_type_t evt_type,
-                      int reg_count);
-int32_t mm_camera_set_general_parm(mm_camera_obj_t * my_obj,
-                                   mm_camera_parm_type_t parm_type,
-                                   void* p_value);
+int32_t mm_camera_evt_sub(mm_camera_obj_t * my_obj,
+                          uint8_t reg_flag);
 int32_t mm_camera_enqueue_evt(mm_camera_obj_t *my_obj,
                               mm_camera_event_t *event);
-extern int32_t mm_channel_init(mm_channel_t *my_obj);
 
+/*===========================================================================
+ * FUNCTION   : mm_camera_util_get_channel_by_handler
+ *
+ * DESCRIPTION: utility function to get a channel object from its handle
+ *
+ * PARAMETERS :
+ *   @cam_obj: ptr to a camera object
+ *   @handler: channel handle
+ *
+ * RETURN     : ptr to a channel object.
+ *              NULL if failed.
+ *==========================================================================*/
 mm_channel_t * mm_camera_util_get_channel_by_handler(
                                     mm_camera_obj_t * cam_obj,
                                     uint32_t handler)
 {
     int i;
     mm_channel_t *ch_obj = NULL;
-    uint8_t ch_idx = mm_camera_util_get_index_by_handler(handler);
-
     for(i = 0; i < MM_CAMERA_CHANNEL_MAX; i++) {
         if (handler == cam_obj->ch[i].my_hdl) {
             ch_obj = &cam_obj->ch[i];
@@ -84,142 +81,124 @@ mm_channel_t * mm_camera_util_get_channel_by_handler(
     return ch_obj;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_camera_util_chip_is_a_family
+ *
+ * DESCRIPTION: utility function to check if the host is A family chip
+ *
+ * PARAMETERS :
+ *
+ * RETURN     : TRUE if A family.
+ *              FALSE otherwise.
+ *==========================================================================*/
+uint8_t mm_camera_util_chip_is_a_family(void)
+{
+    int id = 0;
+    FILE *fp;
+    if ((fp = fopen("/sys/devices/system/soc/soc0/id", "r")) != NULL) {
+        fscanf(fp, "%d", &id);
+        fclose(fp);
+    }
+    if (id == 126)
+        return FALSE;
+    else
+        return TRUE;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_camera_dispatch_app_event
+ *
+ * DESCRIPTION: dispatch event to apps who regitster for event notify
+ *
+ * PARAMETERS :
+ *   @cmd_cb: ptr to a struct storing event info
+ *   @user_data: user data ptr (camera object)
+ *
+ * RETURN     : none
+ *==========================================================================*/
 static void mm_camera_dispatch_app_event(mm_camera_cmdcb_t *cmd_cb,
                                          void* user_data)
 {
+    mm_camera_cmd_thread_name("mm_cam_event");
     int i;
-    mm_camera_event_type_t evt_type = cmd_cb->u.evt.event_type;
     mm_camera_event_t *event = &cmd_cb->u.evt;
     mm_camera_obj_t * my_obj = (mm_camera_obj_t *)user_data;
     if (NULL != my_obj) {
-        if (evt_type < MM_CAMERA_EVT_TYPE_MAX) {
-            pthread_mutex_lock(&my_obj->cb_lock);
-            for(i = 0; i < MM_CAMERA_EVT_ENTRY_MAX; i++) {
-                if(my_obj->evt[evt_type].evt[i].evt_cb) {
-                    my_obj->evt[evt_type].evt[i].evt_cb(
-                        my_obj->my_hdl,
-                        event,
-                        my_obj->evt[evt_type].evt[i].user_data);
-                }
+        pthread_mutex_lock(&my_obj->cb_lock);
+        for(i = 0; i < MM_CAMERA_EVT_ENTRY_MAX; i++) {
+            if(my_obj->evt.evt[i].evt_cb) {
+                my_obj->evt.evt[i].evt_cb(
+                    my_obj->my_hdl,
+                    event,
+                    my_obj->evt.evt[i].user_data);
             }
-            pthread_mutex_unlock(&my_obj->cb_lock);
         }
+        pthread_mutex_unlock(&my_obj->cb_lock);
     }
 }
 
-static void mm_camera_handle_async_cmd(mm_camera_cmdcb_t *cmd_cb,
-                                       void* user_data)
-{
-    int i;
-    mm_camera_async_cmd_t *async_cmd = &cmd_cb->u.async;
-    mm_camera_obj_t * my_obj = NULL;
-    mm_evt_payload_stop_stream_t payload;
-
-    my_obj = (mm_camera_obj_t *)user_data;
-    if (NULL != my_obj) {
-        if (MM_CAMERA_ASYNC_CMD_TYPE_STOP == async_cmd->cmd_type) {
-            memset(&payload, 0, sizeof(mm_evt_payload_stop_stream_t));
-            payload.num_streams = async_cmd->u.stop_cmd.num_streams;
-            payload.stream_ids = async_cmd->u.stop_cmd.stream_ids;
-            mm_channel_fsm_fn(async_cmd->u.stop_cmd.ch_obj,
-                                   MM_CHANNEL_EVT_TEARDOWN_STREAM,
-                                   (void*)&payload,
-                                   NULL);
-        }
-    }
-}
-
+/*===========================================================================
+ * FUNCTION   : mm_camera_event_notify
+ *
+ * DESCRIPTION: callback to handle event notify from kernel. This call will
+ *              dequeue event from kernel.
+ *
+ * PARAMETERS :
+ *   @user_data: user data ptr (camera object)
+ *
+ * RETURN     : none
+ *==========================================================================*/
 static void mm_camera_event_notify(void* user_data)
 {
     struct v4l2_event ev;
+    struct msm_v4l2_event_data *msm_evt = NULL;
     int rc;
-    mm_camera_event_t *evt = NULL;
-    mm_camera_cmdcb_t *node = NULL;
+    mm_camera_event_t evt;
+    memset(&evt, 0, sizeof(mm_camera_event_t));
 
     mm_camera_obj_t *my_obj = (mm_camera_obj_t*)user_data;
     if (NULL != my_obj) {
         /* read evt */
         memset(&ev, 0, sizeof(ev));
         rc = ioctl(my_obj->ctrl_fd, VIDIOC_DQEVENT, &ev);
-        evt = (mm_camera_event_t *)ev.u.data;
 
-        if (rc >= 0) {
-            if(ev.type == V4L2_EVENT_PRIVATE_START+MSM_CAM_APP_NOTIFY_ERROR_EVENT) {
-                evt->event_type = MM_CAMERA_EVT_TYPE_CTRL;
-                evt->e.ctrl.evt = MM_CAMERA_CTRL_EVT_ERROR;
-                node = (mm_camera_cmdcb_t *)malloc(sizeof(mm_camera_cmdcb_t));
-                if (NULL != node) {
-                    memset(node, 0, sizeof(mm_camera_cmdcb_t));
-                    node->cmd_type = MM_CAMERA_CMD_TYPE_EVT_CB;
-                    memcpy(&node->u.evt, evt, sizeof(mm_camera_event_t));
+        if (rc >= 0 && ev.id == MSM_CAMERA_MSM_NOTIFY) {
+            msm_evt = (struct msm_v4l2_event_data *)ev.u.data;
+            switch (msm_evt->command) {
+            case CAM_EVENT_TYPE_MAP_UNMAP_DONE:
+                pthread_mutex_lock(&my_obj->evt_lock);
+                my_obj->evt_rcvd.server_event_type = msm_evt->command;
+                my_obj->evt_rcvd.status = msm_evt->status;
+                pthread_cond_signal(&my_obj->evt_cond);
+                pthread_mutex_unlock(&my_obj->evt_lock);
+                break;
+            case MSM_CAMERA_PRIV_SHUTDOWN:
+                {
+                    evt.server_event_type = CAM_EVENT_TYPE_DAEMON_DIED;
+                    mm_camera_enqueue_evt(my_obj, &evt);
                 }
-            } else {
-                switch (evt->event_type) {
-                case MM_CAMERA_EVT_TYPE_CH:
-                case MM_CAMERA_EVT_TYPE_CTRL:
-                case MM_CAMERA_EVT_TYPE_STATS:
-                case MM_CAMERA_EVT_TYPE_INFO:
-                    {
-                        node = (mm_camera_cmdcb_t *)malloc(sizeof(mm_camera_cmdcb_t));
-                        if (NULL != node) {
-                            memset(node, 0, sizeof(mm_camera_cmdcb_t));
-                            node->cmd_type = MM_CAMERA_CMD_TYPE_EVT_CB;
-                            memcpy(&node->u.evt, evt, sizeof(mm_camera_event_t));
-                        }
-                    }
-                    break;
-                case MM_CAMERA_EVT_TYPE_PRIVATE_EVT:
-                    {
-                        CDBG("%s: MM_CAMERA_EVT_TYPE_PRIVATE_EVT", __func__);
-                        struct msm_camera_v4l2_ioctl_t v4l2_ioctl;
-                        int32_t length =
-                            sizeof(mm_camera_cmdcb_t) + evt->e.pri_evt.data_length;
-                        node = (mm_camera_cmdcb_t *)malloc(length);
-                        if (NULL != node) {
-                            memset(node, 0, length);
-                            node->cmd_type = MM_CAMERA_CMD_TYPE_EVT_CB;
-                            memcpy(&node->u.evt, evt, sizeof(mm_camera_event_t));
-
-                            if (evt->e.pri_evt.data_length > 0) {
-                                CDBG("%s: data_length =%d (trans_id=%d), dequeue payload",
-                                     __func__, evt->e.pri_evt.data_length,
-                                     node->u.evt.e.pri_evt.trans_id);
-                                /* dequeue event payload if length > 0 */
-                                memset(&v4l2_ioctl, 0, sizeof(v4l2_ioctl));
-                                v4l2_ioctl.trans_code = node->u.evt.e.pri_evt.trans_id;
-                                v4l2_ioctl.len = node->u.evt.e.pri_evt.data_length;
-                                v4l2_ioctl.ioctl_ptr = &(node->u.evt.e.pri_evt.evt_data[0]);
-                                rc = ioctl(my_obj->ctrl_fd, MSM_CAM_V4L2_IOCTL_GET_EVENT_PAYLOAD,
-                                           &v4l2_ioctl);
-                                if (rc < 0) {
-                                    CDBG_ERROR("%s: get event payload returns error = %d",
-                                               __func__, rc);
-                                    free(node);
-                                    node = NULL;
-                                } else {
-                                    CDBG("%s: data_length =%d (trans_id=%d) (payload=%s)",
-                                         __func__, evt->e.pri_evt.data_length,
-                                         node->u.evt.e.pri_evt.trans_id,
-                                         (char*)&node->u.evt.e.pri_evt.evt_data[0]);
-                                }
-                            }
-                        }
-                    }
-                    break;
-                default:
-                    break;
-                }
-            }
-            if (NULL != node) {
-                /* enqueue to evt cmd thread */
-                mm_camera_queue_enq(&(my_obj->evt_thread.cmd_queue), node);
-                /* wake up evt cmd thread */
-                sem_post(&(my_obj->evt_thread.cmd_sem));
+                break;
+            default:
+                break;
             }
         }
     }
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_camera_enqueue_evt
+ *
+ * DESCRIPTION: enqueue received event into event queue to be processed by
+ *              event thread.
+ *
+ * PARAMETERS :
+ *   @my_obj   : ptr to a camera object
+ *   @event    : event to be queued
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_camera_enqueue_evt(mm_camera_obj_t *my_obj,
                               mm_camera_event_t *event)
 {
@@ -230,12 +209,12 @@ int32_t mm_camera_enqueue_evt(mm_camera_obj_t *my_obj,
     if (NULL != node) {
         memset(node, 0, sizeof(mm_camera_cmdcb_t));
         node->cmd_type = MM_CAMERA_CMD_TYPE_EVT_CB;
-        memcpy(&node->u.evt, event, sizeof(mm_camera_event_t));
+        node->u.evt = *event;
 
         /* enqueue to evt cmd thread */
-        mm_camera_queue_enq(&(my_obj->evt_thread.cmd_queue), node);
+        cam_queue_enq(&(my_obj->evt_thread.cmd_queue), node);
         /* wake up evt cmd thread */
-        sem_post(&(my_obj->evt_thread.cmd_sem));
+        cam_sem_post(&(my_obj->evt_thread.cmd_sem));
     } else {
         CDBG_ERROR("%s: No memory for mm_camera_node_t", __func__);
         rc = -1;
@@ -244,53 +223,48 @@ int32_t mm_camera_enqueue_evt(mm_camera_obj_t *my_obj,
     return rc;
 }
 
-/* send local CH evt to HAL
- * may not needed since we have return val for each channel/stream operation */
-int32_t mm_camera_send_ch_event(mm_camera_obj_t *my_obj,
-                                uint32_t ch_id,
-                                uint32_t stream_id,
-                                mm_camera_ch_event_type_t evt)
-{
-    int rc = 0;
-    mm_camera_event_t event;
-    event.event_type = MM_CAMERA_EVT_TYPE_CH;
-    event.e.ch.evt = evt;
-    /* TODO: need to change the ch evt struct to include ch_id and stream_id. */
-    event.e.ch.ch = stream_id;
-    CDBG("%s: stream on event, type=0x%x, ch=%d, evt=%d",
-         __func__, event.event_type, event.e.ch.ch, event.e.ch.evt);
-    rc = mm_camera_enqueue_evt(my_obj, &event);
-    return rc;
-}
-
+/*===========================================================================
+ * FUNCTION   : mm_camera_open
+ *
+ * DESCRIPTION: open a camera
+ *
+ * PARAMETERS :
+ *   @my_obj   : ptr to a camera object
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_camera_open(mm_camera_obj_t *my_obj)
 {
     char dev_name[MM_CAMERA_DEV_NAME_LEN];
     int32_t rc = 0;
     int8_t n_try=MM_CAMERA_DEV_OPEN_TRIES;
     uint8_t sleep_msec=MM_CAMERA_DEV_OPEN_RETRY_SLEEP;
-    uint8_t i;
-    uint8_t cam_idx = mm_camera_util_get_index_by_handler(my_obj->my_hdl);
+    unsigned int cam_idx = 0;
 
     CDBG("%s:  begin\n", __func__);
 
     snprintf(dev_name, sizeof(dev_name), "/dev/%s",
              mm_camera_util_get_dev_name(my_obj->my_hdl));
+    sscanf(dev_name, "/dev/video%u", &cam_idx);
+    CDBG_HIGH("%s: dev name = %s, cam_idx = %d", __func__, dev_name, cam_idx);
 
     do{
         n_try--;
+        errno = 0;
         my_obj->ctrl_fd = open(dev_name, O_RDWR | O_NONBLOCK);
         CDBG("%s:  ctrl_fd = %d, errno == %d", __func__, my_obj->ctrl_fd, errno);
-        if((my_obj->ctrl_fd > 0) || (errno != EIO) || (n_try <= 0 )) {
-            CDBG_ERROR("%s:  opened, break out while loop", __func__);
+        if((my_obj->ctrl_fd >= 0) || (errno != EIO && errno != ETIMEDOUT) || (n_try <= 0 )) {
+            CDBG_HIGH("%s:  opened, break out while loop", __func__);
             break;
         }
-        CDBG("%s:failed with I/O error retrying after %d milli-seconds",
-             __func__,sleep_msec);
-        usleep(sleep_msec*1000);
-    }while(n_try>0);
+        ALOGE("%s:Failed with %s error, retrying after %d milli-seconds",
+             __func__, strerror(errno), sleep_msec);
+        usleep(sleep_msec * 1000);
+    }while (n_try > 0);
 
-    if (my_obj->ctrl_fd <= 0) {
+    if (my_obj->ctrl_fd < 0) {
         CDBG_ERROR("%s: cannot open control fd of '%s' (%s)\n",
                  __func__, dev_name, strerror(errno));
         rc = -1;
@@ -298,45 +272,31 @@ int32_t mm_camera_open(mm_camera_obj_t *my_obj)
     }
 
     /* open domain socket*/
-    n_try=MM_CAMERA_DEV_OPEN_TRIES;
-    do{
+    n_try = MM_CAMERA_DEV_OPEN_TRIES;
+    do {
         n_try--;
         my_obj->ds_fd = mm_camera_socket_create(cam_idx, MM_CAMERA_SOCK_TYPE_UDP);
         CDBG("%s:  ds_fd = %d, errno = %d", __func__, my_obj->ds_fd, errno);
-        if((my_obj->ds_fd > 0) || (n_try <= 0 )) {
+        if((my_obj->ds_fd >= 0) || (n_try <= 0 )) {
             CDBG("%s:  opened, break out while loop", __func__);
             break;
         }
         CDBG("%s:failed with I/O error retrying after %d milli-seconds",
-             __func__,sleep_msec);
-        usleep(sleep_msec*1000);
-    }while(n_try>0);
+             __func__, sleep_msec);
+        usleep(sleep_msec * 1000);
+    } while (n_try > 0);
 
-    if (my_obj->ds_fd <= 0) {
+    if (my_obj->ds_fd < 0) {
         CDBG_ERROR("%s: cannot open domain socket fd of '%s'(%s)\n",
                  __func__, dev_name, strerror(errno));
         rc = -1;
         goto on_error;
     }
-
-    /* set ctrl_fd to be the mem_mapping fd */
-    rc =  mm_camera_util_s_ctrl(my_obj->ctrl_fd,
-                        MSM_V4L2_PID_MMAP_INST, 0);
-    if (rc < 0) {
-        CDBG_ERROR("error: ioctl VIDIOC_S_CTRL MSM_V4L2_PID_MMAP_INST failed: %s\n",
-                   strerror(errno));
-        goto on_error;
-    }
-
-    /* set geo mode to 2D by default */
-    my_obj->current_mode = CAMERA_MODE_2D;
+    pthread_mutex_init(&my_obj->msg_lock, NULL);
 
     pthread_mutex_init(&my_obj->cb_lock, NULL);
-
-    CDBG("%s : Launch async cmd Thread in Cam Open",__func__);
-    mm_camera_cmd_thread_launch(&my_obj->async_cmd_thread,
-                                mm_camera_handle_async_cmd,
-                                (void *)my_obj);
+    pthread_mutex_init(&my_obj->evt_lock, NULL);
+    pthread_cond_init(&my_obj->evt_cond, NULL);
 
     CDBG("%s : Launch evt Thread in Cam Open",__func__);
     mm_camera_cmd_thread_launch(&my_obj->evt_thread,
@@ -345,9 +305,10 @@ int32_t mm_camera_open(mm_camera_obj_t *my_obj)
 
     /* launch event poll thread
      * we will add evt fd into event poll thread upon user first register for evt */
-    CDBG("%s : Launch evt Poll Thread in Cam Open",__func__);
+    CDBG("%s : Launch evt Poll Thread in Cam Open", __func__);
     mm_camera_poll_thread_launch(&my_obj->evt_poll_thread,
                                  MM_CAMERA_POLL_TYPE_EVT);
+    mm_camera_evt_sub(my_obj, TRUE);
 
     CDBG("%s:  end (rc = %d)\n", __func__, rc);
     /* we do not need to unlock cam_lock here before return
@@ -355,11 +316,11 @@ int32_t mm_camera_open(mm_camera_obj_t *my_obj)
     return rc;
 
 on_error:
-    if (my_obj->ctrl_fd > 0) {
+    if (my_obj->ctrl_fd >= 0) {
         close(my_obj->ctrl_fd);
         my_obj->ctrl_fd = -1;
     }
-    if (my_obj->ds_fd > 0) {
+    if (my_obj->ds_fd >= 0) {
         mm_camera_socket_close(my_obj->ds_fd);
        my_obj->ds_fd = -1;
     }
@@ -369,58 +330,73 @@ on_error:
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_camera_close
+ *
+ * DESCRIPTION: enqueue received event into event queue to be processed by
+ *              event thread.
+ *
+ * PARAMETERS :
+ *   @my_obj   : ptr to a camera object
+ *   @event    : event to be queued
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_camera_close(mm_camera_obj_t *my_obj)
 {
+    CDBG("%s : unsubscribe evt", __func__);
+    mm_camera_evt_sub(my_obj, FALSE);
+
     CDBG("%s : Close evt Poll Thread in Cam Close",__func__);
     mm_camera_poll_thread_release(&my_obj->evt_poll_thread);
 
     CDBG("%s : Close evt cmd Thread in Cam Close",__func__);
     mm_camera_cmd_thread_release(&my_obj->evt_thread);
 
-    CDBG("%s : Close asyn cmd Thread in Cam Close",__func__);
-    mm_camera_cmd_thread_release(&my_obj->async_cmd_thread);
-
-    if(my_obj->ctrl_fd > 0) {
+    if(my_obj->ctrl_fd >= 0) {
         close(my_obj->ctrl_fd);
         my_obj->ctrl_fd = -1;
     }
-    if(my_obj->ds_fd > 0) {
+    if(my_obj->ds_fd >= 0) {
         mm_camera_socket_close(my_obj->ds_fd);
         my_obj->ds_fd = -1;
     }
+    pthread_mutex_destroy(&my_obj->msg_lock);
 
     pthread_mutex_destroy(&my_obj->cb_lock);
+    pthread_mutex_destroy(&my_obj->evt_lock);
+    pthread_cond_destroy(&my_obj->evt_cond);
 
     pthread_mutex_unlock(&my_obj->cam_lock);
     return 0;
 }
 
-uint8_t mm_camera_is_event_supported(mm_camera_obj_t *my_obj, mm_camera_event_type_t evt_type)
-{
-    switch(evt_type) {
-    case MM_CAMERA_EVT_TYPE_CH:
-    case MM_CAMERA_EVT_TYPE_CTRL:
-    case MM_CAMERA_EVT_TYPE_STATS:
-    case MM_CAMERA_EVT_TYPE_INFO:
-      return 1;
-    default:
-      return 0;
-    }
-    return 0;
-}
-
-int32_t mm_camera_register_event_notify_internal(
-                                   mm_camera_obj_t *my_obj,
-                                   mm_camera_event_notify_t evt_cb,
-                                   void * user_data,
-                                   mm_camera_event_type_t evt_type)
+/*===========================================================================
+ * FUNCTION   : mm_camera_register_event_notify_internal
+ *
+ * DESCRIPTION: internal implementation for registering callback for event notify.
+ *
+ * PARAMETERS :
+ *   @my_obj   : ptr to a camera object
+ *   @evt_cb   : callback to be registered to handle event notify
+ *   @user_data: user data ptr
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_camera_register_event_notify_internal(mm_camera_obj_t *my_obj,
+                                                 mm_camera_event_notify_t evt_cb,
+                                                 void * user_data)
 {
     int i;
     int rc = -1;
     mm_camera_evt_obj_t *evt_array = NULL;
 
     pthread_mutex_lock(&my_obj->cb_lock);
-    evt_array = &my_obj->evt[evt_type];
+    evt_array = &my_obj->evt;
     if(evt_cb) {
         /* this is reg case */
         for(i = 0; i < MM_CAMERA_EVT_ENTRY_MAX; i++) {
@@ -445,31 +421,50 @@ int32_t mm_camera_register_event_notify_internal(
         }
     }
 
-    if(rc == 0 && evt_array->reg_count <= 1) {
-        /* subscribe/unsubscribe event to kernel */
-        rc = mm_camera_evt_sub(my_obj, evt_type, evt_array->reg_count);
-    }
-
     pthread_mutex_unlock(&my_obj->cb_lock);
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_camera_register_event_notify
+ *
+ * DESCRIPTION: registering a callback for event notify.
+ *
+ * PARAMETERS :
+ *   @my_obj   : ptr to a camera object
+ *   @evt_cb   : callback to be registered to handle event notify
+ *   @user_data: user data ptr
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_camera_register_event_notify(mm_camera_obj_t *my_obj,
-                                   mm_camera_event_notify_t evt_cb,
-                                   void * user_data,
-                                   mm_camera_event_type_t evt_type)
+                                        mm_camera_event_notify_t evt_cb,
+                                        void * user_data)
 {
-    int i;
     int rc = -1;
-    mm_camera_evt_obj_t *evt_array = &my_obj->evt[evt_type];
-
-    rc = mm_camera_register_event_notify_internal(my_obj, evt_cb,
-                                                  user_data, evt_type);
-
+    rc = mm_camera_register_event_notify_internal(my_obj,
+                                                  evt_cb,
+                                                  user_data);
     pthread_mutex_unlock(&my_obj->cam_lock);
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_camera_qbuf
+ *
+ * DESCRIPTION: enqueue buffer back to kernel
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *   @buf          : buf ptr to be enqueued
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_camera_qbuf(mm_camera_obj_t *my_obj,
                        uint32_t ch_id,
                        mm_camera_buf_def_t *buf)
@@ -490,367 +485,229 @@ int32_t mm_camera_qbuf(mm_camera_obj_t *my_obj,
     return rc;
 }
 
-mm_camera_2nd_sensor_t * mm_camera_query_2nd_sensor_info(mm_camera_obj_t *my_obj)
-{
-    /* TODO: need to sync with backend how to get 2nd sensor info */
-    return NULL;
-}
-
-int32_t mm_camera_sync(mm_camera_obj_t *my_obj)
+/*===========================================================================
+ * FUNCTION   : mm_camera_query_capability
+ *
+ * DESCRIPTION: query camera capability
+ *
+ * PARAMETERS :
+ *   @my_obj: camera object
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_camera_query_capability(mm_camera_obj_t *my_obj)
 {
     int32_t rc = 0;
+    struct v4l2_capability cap;
 
     /* get camera capabilities */
-    memset(&my_obj->properties, 0, sizeof(cam_prop_t));
-    rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                        CAMERA_GET_CAPABILITIES,
-                                        sizeof(cam_prop_t),
-                                        (void *)&my_obj->properties);
+    memset(&cap, 0, sizeof(cap));
+    rc = ioctl(my_obj->ctrl_fd, VIDIOC_QUERYCAP, &cap);
     if (rc != 0) {
-        CDBG_ERROR("%s: cannot get camera capabilities\n", __func__);
-        goto on_error;
+        CDBG_ERROR("%s: cannot get camera capabilities, rc = %d\n", __func__, rc);
     }
 
-on_error:
     pthread_mutex_unlock(&my_obj->cam_lock);
     return rc;
 
 }
 
-int32_t mm_camera_is_op_supported(mm_camera_obj_t *my_obj,
-                                   mm_camera_ops_type_t op_code)
+/*===========================================================================
+ * FUNCTION   : mm_camera_set_parms
+ *
+ * DESCRIPTION: set parameters per camera
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @parms        : ptr to a param struct to be set to server
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ * NOTE       : Assume the parms struct buf is already mapped to server via
+ *              domain socket. Corresponding fields of parameters to be set
+ *              are already filled in by upper layer caller.
+ *==========================================================================*/
+int32_t mm_camera_set_parms(mm_camera_obj_t *my_obj,
+                            parm_buffer_t *parms)
 {
-    int32_t rc = 0;
-    int32_t is_ops_supported = false;
-    int index = 0;
-
-    if (op_code != MM_CAMERA_OPS_LOCAL) {
-        index = op_code/32;
-        is_ops_supported = ((my_obj->properties.ops[index] &
-            (1<<op_code)) != 0);
-
-    }
-    pthread_mutex_unlock(&my_obj->cam_lock);
-    return is_ops_supported;
-}
-
-int32_t mm_camera_is_parm_supported(mm_camera_obj_t *my_obj,
-                                   mm_camera_parm_type_t parm_type,
-                                   uint8_t *support_set_parm,
-                                   uint8_t *support_get_parm)
-{
-    /* TODO: need to sync with backend if it can support set/get */
-    int32_t rc = 0;
-    *support_set_parm = GET_PARM_BIT32(parm_type,
-                                       my_obj->properties.parm);
-    *support_get_parm = GET_PARM_BIT32(parm_type,
-                                       my_obj->properties.parm);
-    pthread_mutex_unlock(&my_obj->cam_lock);
-
-    return rc;
-}
-
-int32_t mm_camera_util_set_op_mode(mm_camera_obj_t * my_obj,
-                                   mm_camera_op_mode_type_t *op_mode)
-{
-    int32_t rc = 0;
-    int32_t v4l2_op_mode = MSM_V4L2_CAM_OP_DEFAULT;
-
-    if (my_obj->op_mode == *op_mode)
-        goto end;
-    switch(*op_mode) {
-    case MM_CAMERA_OP_MODE_ZSL:
-        v4l2_op_mode = MSM_V4L2_CAM_OP_ZSL;
-            break;
-    case MM_CAMERA_OP_MODE_CAPTURE:
-        v4l2_op_mode = MSM_V4L2_CAM_OP_CAPTURE;
-            break;
-    case MM_CAMERA_OP_MODE_VIDEO:
-        v4l2_op_mode = MSM_V4L2_CAM_OP_VIDEO;
-            break;
-    case MM_CAMERA_OP_MODE_RAW:
-        v4l2_op_mode = MSM_V4L2_CAM_OP_RAW;
-            break;
-    default:
-        rc = - 1;
-        goto end;
-        break;
-    }
-    if(0 != (rc =  mm_camera_util_s_ctrl(my_obj->ctrl_fd,
-            MSM_V4L2_PID_CAM_MODE, v4l2_op_mode))){
-        CDBG_ERROR("%s: input op_mode=%d, s_ctrl rc=%d\n", __func__, *op_mode, rc);
-        goto end;
-    }
-    /* if success update mode field */
-    my_obj->op_mode = *op_mode;
-end:
-    CDBG("%s: op_mode=%d,rc=%d\n", __func__, *op_mode, rc);
-    return rc;
-}
-
-int32_t mm_camera_set_parm(mm_camera_obj_t *my_obj,
-                           mm_camera_parm_type_t parm_type,
-                           void* p_value)
-{
-    int32_t rc = 0;
-    CDBG("%s type =%d", __func__, parm_type);
-    switch(parm_type) {
-    case MM_CAMERA_PARM_OP_MODE:
-        rc = mm_camera_util_set_op_mode(my_obj,
-                        (mm_camera_op_mode_type_t *)p_value);
-        break;
-    case MM_CAMERA_PARM_DIMENSION:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                    CAMERA_SET_PARM_DIMENSION, sizeof(cam_ctrl_dimension_t), p_value);
-        if(rc != 0) {
-            CDBG("%s: mm_camera_send_native_ctrl_cmd err=%d\n", __func__, rc);
-            break;
-        }
-        memcpy(&my_obj->dim, (cam_ctrl_dimension_t *)p_value,
-                     sizeof(cam_ctrl_dimension_t));
-        CDBG("%s: dw=%d,dh=%d,vw=%d,vh=%d,pw=%d,ph=%d,tw=%d,th=%d,raw_w=%d,raw_h=%d\n",
-                 __func__,
-                 my_obj->dim.display_width,my_obj->dim.display_height,
-                 my_obj->dim.video_width, my_obj->dim.video_height,
-                 my_obj->dim.picture_width,my_obj->dim.picture_height,
-                 my_obj->dim.ui_thumbnail_width,my_obj->dim.ui_thumbnail_height,
-                 my_obj->dim.raw_picture_width,my_obj->dim.raw_picture_height);
-        break;
-    case MM_CAMERA_PARM_SNAPSHOT_BURST_NUM:
-        my_obj->snap_burst_num_by_user = *((uint32_t *)p_value);
-        break;
-    default:
-        rc = mm_camera_set_general_parm(my_obj, parm_type, p_value);
-        break;
+    int32_t rc = -1;
+    int32_t value = 0;
+    if (parms !=  NULL) {
+        rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd, CAM_PRIV_PARM, &value);
     }
     pthread_mutex_unlock(&my_obj->cam_lock);
     return rc;
 }
 
-int32_t mm_camera_get_parm(mm_camera_obj_t *my_obj,
-                           mm_camera_parm_type_t parm_type,
-                           void* p_value)
+/*===========================================================================
+ * FUNCTION   : mm_camera_get_parms
+ *
+ * DESCRIPTION: get parameters per camera
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @parms        : ptr to a param struct to be get from server
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ * NOTE       : Assume the parms struct buf is already mapped to server via
+ *              domain socket. Parameters to be get from server are already
+ *              filled in by upper layer caller. After this call, corresponding
+ *              fields of requested parameters will be filled in by server with
+ *              detailed information.
+ *==========================================================================*/
+int32_t mm_camera_get_parms(mm_camera_obj_t *my_obj,
+                            parm_buffer_t *parms)
 {
-    int32_t rc = 0;
-
-    switch(parm_type) {
-    case MM_CAMERA_PARM_FRAME_RESOLUTION:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_GET_PARM_FRAME_RESOLUTION,
-                                            sizeof(cam_frame_resolution_t),
-                                            p_value);
-        if (rc < 0)
-            CDBG_ERROR("%s: ERROR in CAMERA_GET_PARM_FRAME_RESOLUTION, rc = %d",
-                 __func__, rc);
-        break;
-    case MM_CAMERA_PARM_MAX_PICTURE_SIZE:
-        {
-            mm_camera_dimension_t *dim =
-                (mm_camera_dimension_t *)p_value;
-            dim->height = my_obj->properties.max_pict_height;
-            dim->width = my_obj->properties.max_pict_width;
-            CDBG("%s: Max Picture Size: %d X %d\n", __func__,
-                 dim->width, dim->height);
-        }
-        break;
-    case MM_CAMERA_PARM_PREVIEW_FORMAT:
-        *((int *)p_value) = my_obj->properties.preview_format;
-        break;
-    case MM_CAMERA_PARM_PREVIEW_SIZES_CNT:
-        *((int *)p_value) = my_obj->properties.preview_sizes_cnt;
-        break;
-    case MM_CAMERA_PARM_VIDEO_SIZES_CNT:
-        *((int *)p_value) = my_obj->properties.video_sizes_cnt;
-        break;
-    case MM_CAMERA_PARM_THUMB_SIZES_CNT:
-        *((int *)p_value) = my_obj->properties.thumb_sizes_cnt;
-        break;
-    case MM_CAMERA_PARM_HFR_SIZES_CNT:
-        *((int *)p_value) = my_obj->properties.hfr_sizes_cnt;
-        break;
-    case MM_CAMERA_PARM_HFR_FRAME_SKIP:
-        *((int *)p_value) = my_obj->properties.hfr_frame_skip;
-        break;
-    case MM_CAMERA_PARM_DEFAULT_PREVIEW_WIDTH:
-        *((int *)p_value) = my_obj->properties.default_preview_width;
-        break;
-    case MM_CAMERA_PARM_DEFAULT_PREVIEW_HEIGHT:
-        *((int *)p_value) = my_obj->properties.default_preview_height;
-        break;
-    case MM_CAMERA_PARM_MAX_PREVIEW_SIZE:
-        {
-            mm_camera_dimension_t *dim =
-                (mm_camera_dimension_t *)p_value;
-            dim->height = my_obj->properties.max_preview_height;
-            dim->width = my_obj->properties.max_preview_width;
-            CDBG("%s: Max Preview Size: %d X %d\n", __func__,
-                 dim->width, dim->height);
-        }
-        break;
-    case MM_CAMERA_PARM_MAX_VIDEO_SIZE:
-        {
-            mm_camera_dimension_t *dim =
-                (mm_camera_dimension_t *)p_value;
-            dim->height = my_obj->properties.max_video_height;
-            dim->width = my_obj->properties.max_video_width;
-            CDBG("%s: Max Video Size: %d X %d\n", __func__,
-                 dim->width, dim->height);
-        }
-        break;
-    case MM_CAMERA_PARM_MAX_HFR_MODE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_GET_PARM_MAX_HFR_MODE,
-                                            sizeof(camera_hfr_mode_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_FOCAL_LENGTH:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_GET_PARM_FOCAL_LENGTH,
-                                            sizeof(float),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_HORIZONTAL_VIEW_ANGLE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_GET_PARM_HORIZONTAL_VIEW_ANGLE,
-                                            sizeof(float),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_VERTICAL_VIEW_ANGLE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_GET_PARM_VERTICAL_VIEW_ANGLE,
-                                            sizeof(float),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_FOCUS_DISTANCES:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_GET_PARM_FOCUS_DISTANCES,
-                                            sizeof(focus_distances_info_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_QUERY_FALSH4SNAP:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_QUERY_FLASH_FOR_SNAPSHOT,
-                                            sizeof(int),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_3D_FRAME_FORMAT:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_GET_PARM_3D_FRAME_FORMAT,
-                                            sizeof(camera_3d_frame_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_MAXZOOM:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_GET_PARM_MAXZOOM,
-                                            sizeof(int),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_ZOOM_RATIO:
-        {
-            mm_camera_zoom_tbl_t *tbl = (mm_camera_zoom_tbl_t *)p_value;
-            rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                                CAMERA_GET_PARM_ZOOMRATIOS,
-                                                sizeof(int16_t)*tbl->size,
-                                                (void *)(tbl->zoom_ratio_tbl));
-        }
-        break;
-    case MM_CAMERA_PARM_DEF_PREVIEW_SIZES:
-        {
-            default_sizes_tbl_t *tbl = (default_sizes_tbl_t*)p_value;
-            rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                                CAMERA_GET_PARM_DEF_PREVIEW_SIZES,
-                                                sizeof(struct camera_size_type)*tbl->tbl_size,
-                                                (void* )(tbl->sizes_tbl));
-        }
-        break;
-    case MM_CAMERA_PARM_DEF_VIDEO_SIZES:
-        {
-            default_sizes_tbl_t *tbl = (default_sizes_tbl_t*)p_value;
-            rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                                CAMERA_GET_PARM_DEF_VIDEO_SIZES,
-                                                sizeof(struct camera_size_type)*tbl->tbl_size,
-                                                (void *)(tbl->sizes_tbl));
-        }
-        break;
-    case MM_CAMERA_PARM_DEF_THUMB_SIZES:
-        {
-            default_sizes_tbl_t *tbl = (default_sizes_tbl_t*)p_value;
-            rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                                CAMERA_GET_PARM_DEF_THUMB_SIZES,
-                                                sizeof(struct camera_size_type)*tbl->tbl_size,
-                                                (void *)(tbl->sizes_tbl));
-        }
-        break;
-    case MM_CAMERA_PARM_DEF_HFR_SIZES:
-        {
-            default_sizes_tbl_t *tbl = (default_sizes_tbl_t*)p_value;
-            rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                                CAMERA_GET_PARM_DEF_HFR_SIZES,
-                                                sizeof(struct camera_size_type)*tbl->tbl_size,
-                                                (void *)(tbl->sizes_tbl));
-        }
-        break;
-    case MM_CAMERA_PARM_SNAPSHOT_BURST_NUM:
-        *((int *)p_value) = my_obj->snap_burst_num_by_user;
-        break;
-    case MM_CAMERA_PARM_VFE_OUTPUT_ENABLE:
-        *((int *)p_value) = my_obj->properties.vfe_output_enable;
-        break;
-    case MM_CAMERA_PARM_DIMENSION:
-        memcpy(p_value, &my_obj->dim, sizeof(my_obj->dim));
-        CDBG("%s: dw=%d,dh=%d,vw=%d,vh=%d,pw=%d,ph=%d,tw=%d,th=%d,ovx=%x,ovy=%d,opx=%d,opy=%d, m_fmt=%d, t_ftm=%d\n",
-                 __func__,
-                 my_obj->dim.display_width,my_obj->dim.display_height,
-                 my_obj->dim.video_width,my_obj->dim.video_height,
-                 my_obj->dim.picture_width,my_obj->dim.picture_height,
-                 my_obj->dim.ui_thumbnail_width,my_obj->dim.ui_thumbnail_height,
-                 my_obj->dim.orig_video_width,my_obj->dim.orig_video_height,
-                 my_obj->dim.orig_picture_width,my_obj->dim.orig_picture_height,
-                 my_obj->dim.main_img_format, my_obj->dim.thumb_format);
-        break;
-    case MM_CAMERA_PARM_OP_MODE:
-        *((mm_camera_op_mode_type_t *)p_value) = my_obj->op_mode;
-        break;
-    case MM_CAMERA_PARM_MAX_NUM_FACES_DECT:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_GET_MAX_NUM_FACES_DECT,
-                                            sizeof(int),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_HDR:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_GET_PARM_HDR,
-                                            sizeof(exp_bracketing_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_FPS_RANGE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_GET_PARM_FPS_RANGE,
-                                            sizeof(cam_sensor_fps_range_t),
-                                            p_value);
-        break;
-
-    case MM_CAMERA_PARM_BESTSHOT_RECONFIGURE:
-        *((int *)p_value) = my_obj->properties.bestshot_reconfigure;
-        break;
-
-    case MM_CAMERA_PARM_MOBICAT:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_GET_PARM_MOBICAT,
-                                            sizeof(cam_exif_tags_t),
-                                            p_value);
-        break;
-    default:
-        /* needs to add more implementation */
-        rc = -1;
-        break;
+    int32_t rc = -1;
+    int32_t value = 0;
+    if (parms != NULL) {
+        rc = mm_camera_util_g_ctrl(my_obj->ctrl_fd, CAM_PRIV_PARM, &value);
     }
+    pthread_mutex_unlock(&my_obj->cam_lock);
+    return rc;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_camera_do_auto_focus
+ *
+ * DESCRIPTION: performing auto focus
+ *
+ * PARAMETERS :
+ *   @camera_handle: camera handle
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ * NOTE       : if this call success, we will always assume there will
+ *              be an auto_focus event following up.
+ *==========================================================================*/
+int32_t mm_camera_do_auto_focus(mm_camera_obj_t *my_obj)
+{
+    int32_t rc = -1;
+    int32_t value = 0;
+    rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd, CAM_PRIV_DO_AUTO_FOCUS, &value);
+    pthread_mutex_unlock(&my_obj->cam_lock);
+    return rc;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_camera_cancel_auto_focus
+ *
+ * DESCRIPTION: cancel auto focus
+ *
+ * PARAMETERS :
+ *   @camera_handle: camera handle
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_camera_cancel_auto_focus(mm_camera_obj_t *my_obj)
+{
+    int32_t rc = -1;
+    int32_t value = 0;
+    rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd, CAM_PRIV_CANCEL_AUTO_FOCUS, &value);
+    pthread_mutex_unlock(&my_obj->cam_lock);
+    return rc;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_camera_prepare_snapshot
+ *
+ * DESCRIPTION: prepare hardware for snapshot
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @do_af_flag   : flag indicating if AF is needed
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_camera_prepare_snapshot(mm_camera_obj_t *my_obj,
+                                   int32_t do_af_flag)
+{
+    int32_t rc = -1;
+    int32_t value = do_af_flag;
+    rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd, CAM_PRIV_PREPARE_SNAPSHOT, &value);
+    pthread_mutex_unlock(&my_obj->cam_lock);
+    return rc;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_camera_start_zsl_snapshot
+ *
+ * DESCRIPTION: start zsl snapshot
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_camera_start_zsl_snapshot(mm_camera_obj_t *my_obj)
+{
+    int32_t rc = -1;
+    int32_t value = 0;
+
+    rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd,
+             CAM_PRIV_START_ZSL_SNAPSHOT, &value);
 
     pthread_mutex_unlock(&my_obj->cam_lock);
     return rc;
 }
 
-uint32_t mm_camera_add_channel(mm_camera_obj_t *my_obj)
+/*===========================================================================
+ * FUNCTION   : mm_camera_stop_zsl_snapshot
+ *
+ * DESCRIPTION: stop zsl capture
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_camera_stop_zsl_snapshot(mm_camera_obj_t *my_obj)
+{
+    int32_t rc = -1;
+    int32_t value;
+    rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd,
+             CAM_PRIV_STOP_ZSL_SNAPSHOT, &value);
+    pthread_mutex_unlock(&my_obj->cam_lock);
+    return rc;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_camera_add_channel
+ *
+ * DESCRIPTION: add a channel
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @attr         : bundle attribute of the channel if needed
+ *   @channel_cb   : callback function for bundle data notify
+ *   @userdata     : user data ptr
+ *
+ * RETURN     : uint32_t type of channel handle
+ *              0  -- invalid channel handle, meaning the op failed
+ *              >0 -- successfully added a channel with a valid handle
+ * NOTE       : if no bundle data notify is needed, meaning each stream in the
+ *              channel will have its own stream data notify callback, then
+ *              attr, channel_cb, and userdata can be NULL. In this case,
+ *              no matching logic will be performed in channel for the bundling.
+ *==========================================================================*/
+uint32_t mm_camera_add_channel(mm_camera_obj_t *my_obj,
+                               mm_camera_channel_attr_t *attr,
+                               mm_camera_buf_notify_t channel_cb,
+                               void *userdata)
 {
     mm_channel_t *ch_obj = NULL;
     uint8_t ch_idx = 0;
@@ -871,17 +728,33 @@ uint32_t mm_camera_add_channel(mm_camera_obj_t *my_obj)
         ch_obj->state = MM_CHANNEL_STATE_STOPPED;
         ch_obj->cam_obj = my_obj;
         pthread_mutex_init(&ch_obj->ch_lock, NULL);
+        mm_channel_init(ch_obj, attr, channel_cb, userdata);
     }
 
-    mm_channel_init(ch_obj);
     pthread_mutex_unlock(&my_obj->cam_lock);
 
     return ch_hdl;
 }
 
-void mm_camera_del_channel(mm_camera_obj_t *my_obj,
-                           uint32_t ch_id)
+/*===========================================================================
+ * FUNCTION   : mm_camera_del_channel
+ *
+ * DESCRIPTION: delete a channel by its handle
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ * NOTE       : all streams in the channel should be stopped already before
+ *              this channel can be deleted.
+ *==========================================================================*/
+int32_t mm_camera_del_channel(mm_camera_obj_t *my_obj,
+                              uint32_t ch_id)
 {
+    int32_t rc = -1;
     mm_channel_t * ch_obj =
         mm_camera_util_get_channel_by_handler(my_obj, ch_id);
 
@@ -889,7 +762,7 @@ void mm_camera_del_channel(mm_camera_obj_t *my_obj,
         pthread_mutex_lock(&ch_obj->ch_lock);
         pthread_mutex_unlock(&my_obj->cam_lock);
 
-        mm_channel_fsm_fn(ch_obj,
+        rc = mm_channel_fsm_fn(ch_obj,
                                MM_CHANNEL_EVT_DELETE,
                                NULL,
                                NULL);
@@ -899,31 +772,75 @@ void mm_camera_del_channel(mm_camera_obj_t *my_obj,
     } else {
         pthread_mutex_unlock(&my_obj->cam_lock);
     }
+    return rc;
 }
 
-uint32_t mm_camera_add_stream(mm_camera_obj_t *my_obj,
-                              uint32_t ch_id,
-                              mm_camera_buf_notify_t buf_cb, void *user_data,
-                              uint32_t ext_image_mode, uint32_t sensor_idx)
+/*===========================================================================
+ * FUNCTION   : mm_camera_get_bundle_info
+ *
+ * DESCRIPTION: query bundle info of the channel
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *   @bundle_info  : bundle info to be filled in
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ * NOTE       : all streams in the channel should be stopped already before
+ *              this channel can be deleted.
+ *==========================================================================*/
+int32_t mm_camera_get_bundle_info(mm_camera_obj_t *my_obj,
+                                  uint32_t ch_id,
+                                  cam_bundle_config_t *bundle_info)
 {
-    uint32_t s_hdl = 0;
+    int32_t rc = -1;
     mm_channel_t * ch_obj =
         mm_camera_util_get_channel_by_handler(my_obj, ch_id);
-    mm_evt_paylod_add_stream_t payload;
 
     if (NULL != ch_obj) {
         pthread_mutex_lock(&ch_obj->ch_lock);
         pthread_mutex_unlock(&my_obj->cam_lock);
 
-        memset(&payload, 0, sizeof(mm_evt_paylod_add_stream_t));
-        payload.buf_cb = buf_cb;
-        payload.user_data = user_data;
-        payload.ext_image_mode = ext_image_mode;
-        payload.sensor_idx = sensor_idx;
+        rc = mm_channel_fsm_fn(ch_obj,
+                               MM_CHANNEL_EVT_GET_BUNDLE_INFO,
+                               (void *)bundle_info,
+                               NULL);
+    } else {
+        pthread_mutex_unlock(&my_obj->cam_lock);
+    }
+    return rc;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_camera_add_stream
+ *
+ * DESCRIPTION: add a stream into a channel
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *
+ * RETURN     : uint32_t type of stream handle
+ *              0  -- invalid stream handle, meaning the op failed
+ *              >0 -- successfully added a stream with a valid handle
+ *==========================================================================*/
+uint32_t mm_camera_add_stream(mm_camera_obj_t *my_obj,
+                              uint32_t ch_id)
+{
+    uint32_t s_hdl = 0;
+    mm_channel_t * ch_obj =
+        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
+
+    if (NULL != ch_obj) {
+        pthread_mutex_lock(&ch_obj->ch_lock);
+        pthread_mutex_unlock(&my_obj->cam_lock);
+
         mm_channel_fsm_fn(ch_obj,
-                               MM_CHANNEL_EVT_ADD_STREAM,
-                               (void*)&payload,
-                               (void*)&s_hdl);
+                          MM_CHANNEL_EVT_ADD_STREAM,
+                          NULL,
+                          (void*)&s_hdl);
     } else {
         pthread_mutex_unlock(&my_obj->cam_lock);
     }
@@ -931,6 +848,21 @@ uint32_t mm_camera_add_stream(mm_camera_obj_t *my_obj,
     return s_hdl;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_camera_del_stream
+ *
+ * DESCRIPTION: delete a stream by its handle
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *   @stream_id    : stream handle
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ * NOTE       : stream should be stopped already before it can be deleted.
+ *==========================================================================*/
 int32_t mm_camera_del_stream(mm_camera_obj_t *my_obj,
                              uint32_t ch_id,
                              uint32_t stream_id)
@@ -945,7 +877,7 @@ int32_t mm_camera_del_stream(mm_camera_obj_t *my_obj,
 
         rc = mm_channel_fsm_fn(ch_obj,
                                MM_CHANNEL_EVT_DEL_STREAM,
-                               (void*)&stream_id,
+                               (void*)stream_id,
                                NULL);
     } else {
         pthread_mutex_unlock(&my_obj->cam_lock);
@@ -954,6 +886,21 @@ int32_t mm_camera_del_stream(mm_camera_obj_t *my_obj,
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_camera_config_stream
+ *
+ * DESCRIPTION: configure a stream
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *   @stream_id    : stream handle
+ *   @config       : stream configuration
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_camera_config_stream(mm_camera_obj_t *my_obj,
                                 uint32_t ch_id,
                                 uint32_t stream_id,
@@ -982,41 +929,21 @@ int32_t mm_camera_config_stream(mm_camera_obj_t *my_obj,
     return rc;
 }
 
-int32_t mm_camera_bundle_streams(mm_camera_obj_t *my_obj,
-                                 uint32_t ch_id,
-                                 mm_camera_buf_notify_t super_frame_notify_cb,
-                                 void *user_data,
-                                 mm_camera_bundle_attr_t *attr,
-                                 uint8_t num_streams,
-                                 uint32_t *stream_ids)
-{
-    int32_t rc = -1;
-    mm_channel_t * ch_obj =
-        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
-    mm_evt_payload_bundle_stream_t payload;
-
-    if (NULL != ch_obj) {
-        pthread_mutex_lock(&ch_obj->ch_lock);
-        pthread_mutex_unlock(&my_obj->cam_lock);
-
-        memset(&payload, 0, sizeof(mm_evt_payload_bundle_stream_t));
-        payload.super_frame_notify_cb = super_frame_notify_cb;
-        payload.user_data = user_data;
-        payload.attr = attr;
-        payload.num_streams = num_streams;
-        payload.stream_ids = stream_ids;
-        rc = mm_channel_fsm_fn(ch_obj,
-                               MM_CHANNEL_EVT_INIT_BUNDLE,
-                               (void*)&payload,
-                               NULL);
-    } else {
-        pthread_mutex_unlock(&my_obj->cam_lock);
-    }
-
-    return rc;
-}
-
-int32_t mm_camera_destroy_bundle(mm_camera_obj_t *my_obj, uint32_t ch_id)
+/*===========================================================================
+ * FUNCTION   : mm_camera_start_channel
+ *
+ * DESCRIPTION: start a channel, which will start all streams in the channel
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_camera_start_channel(mm_camera_obj_t *my_obj,
+                                uint32_t ch_id)
 {
     int32_t rc = -1;
     mm_channel_t * ch_obj =
@@ -1027,7 +954,7 @@ int32_t mm_camera_destroy_bundle(mm_camera_obj_t *my_obj, uint32_t ch_id)
         pthread_mutex_unlock(&my_obj->cam_lock);
 
         rc = mm_channel_fsm_fn(ch_obj,
-                               MM_CHANNEL_EVT_DESTROY_BUNDLE,
+                               MM_CHANNEL_EVT_START,
                                NULL,
                                NULL);
     } else {
@@ -1037,43 +964,23 @@ int32_t mm_camera_destroy_bundle(mm_camera_obj_t *my_obj, uint32_t ch_id)
     return rc;
 }
 
-int32_t mm_camera_start_streams(mm_camera_obj_t *my_obj,
-                                uint32_t ch_id,
-                                uint8_t num_streams,
-                                uint32_t *stream_ids)
-{
-    int32_t rc = -1;
-    mm_channel_t * ch_obj =
-        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
-    mm_evt_payload_start_stream_t payload;
-
-    if (NULL != ch_obj) {
-        pthread_mutex_lock(&ch_obj->ch_lock);
-        pthread_mutex_unlock(&my_obj->cam_lock);
-
-        memset(&payload, 0, sizeof(mm_evt_payload_start_stream_t));
-        payload.num_streams = num_streams;
-        payload.stream_ids = stream_ids;
-        rc = mm_channel_fsm_fn(ch_obj,
-                               MM_CHANNEL_EVT_START_STREAM,
-                               (void*)&payload,
-                               NULL);
-    } else {
-        pthread_mutex_unlock(&my_obj->cam_lock);
-    }
-
-    return rc;
-}
-
-int32_t mm_camera_stop_streams(mm_camera_obj_t *my_obj,
-                               uint32_t ch_id,
-                               uint8_t num_streams,
-                               uint32_t *stream_ids)
+/*===========================================================================
+ * FUNCTION   : mm_camera_stop_channel
+ *
+ * DESCRIPTION: stop a channel, which will stop all streams in the channel
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_camera_stop_channel(mm_camera_obj_t *my_obj,
+                               uint32_t ch_id)
 {
     int32_t rc = 0;
-    mm_evt_payload_stop_stream_t payload;
-    mm_camera_cmdcb_t * node = NULL;
-
     mm_channel_t * ch_obj =
         mm_camera_util_get_channel_by_handler(my_obj, ch_id);
 
@@ -1081,13 +988,9 @@ int32_t mm_camera_stop_streams(mm_camera_obj_t *my_obj,
         pthread_mutex_lock(&ch_obj->ch_lock);
         pthread_mutex_unlock(&my_obj->cam_lock);
 
-        memset(&payload, 0, sizeof(mm_evt_payload_stop_stream_t));
-        payload.num_streams = num_streams;
-        payload.stream_ids = stream_ids;
-
         rc = mm_channel_fsm_fn(ch_obj,
-                               MM_CHANNEL_EVT_STOP_STREAM,
-                               (void*)&payload,
+                               MM_CHANNEL_EVT_STOP,
+                               NULL,
                                NULL);
     } else {
         pthread_mutex_unlock(&my_obj->cam_lock);
@@ -1095,48 +998,21 @@ int32_t mm_camera_stop_streams(mm_camera_obj_t *my_obj,
     return rc;
 }
 
-int32_t mm_camera_async_teardown_streams(mm_camera_obj_t *my_obj,
-                                          uint32_t ch_id,
-                                          uint8_t num_streams,
-                                          uint32_t *stream_ids)
-{
-    int32_t rc = 0;
-    mm_evt_payload_stop_stream_t payload;
-    mm_camera_cmdcb_t * node = NULL;
-
-    mm_channel_t * ch_obj =
-        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
-
-    if (NULL != ch_obj) {
-        pthread_mutex_lock(&ch_obj->ch_lock);
-        pthread_mutex_unlock(&my_obj->cam_lock);
-
-        /* enqueu asyn stop cmd to async_cmd_thread */
-        node = (mm_camera_cmdcb_t *)malloc(sizeof(mm_camera_cmdcb_t));
-        if (NULL != node) {
-            memset(node, 0, sizeof(mm_camera_cmdcb_t));
-            node->cmd_type = MM_CAMERA_CMD_TYPE_ASYNC_CB;
-            node->u.async.cmd_type = MM_CAMERA_ASYNC_CMD_TYPE_STOP;
-            node->u.async.u.stop_cmd.ch_obj = ch_obj;
-            node->u.async.u.stop_cmd.num_streams = num_streams;
-            memcpy(node->u.async.u.stop_cmd.stream_ids, stream_ids, sizeof(uint32_t)*num_streams);
-
-            /* enqueue to async cmd thread */
-            mm_camera_queue_enq(&(my_obj->async_cmd_thread.cmd_queue), node);
-            /* wake up async cmd thread */
-            sem_post(&(my_obj->async_cmd_thread.cmd_sem));
-        } else {
-            CDBG_ERROR("%s: No memory for mm_camera_cmdcb_t", __func__);
-            pthread_mutex_unlock(&ch_obj->ch_lock);
-            rc = -1;
-            return rc;
-        }
-    } else {
-        pthread_mutex_unlock(&my_obj->cam_lock);
-    }
-    return rc;
-}
-
+/*===========================================================================
+ * FUNCTION   : mm_camera_request_super_buf
+ *
+ * DESCRIPTION: for burst mode in bundle, reuqest certain amount of matched
+ *              frames from superbuf queue
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *   @num_buf_requested : number of matched frames needed
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_camera_request_super_buf(mm_camera_obj_t *my_obj,
                                     uint32_t ch_id,
                                     uint32_t num_buf_requested)
@@ -1160,6 +1036,20 @@ int32_t mm_camera_request_super_buf(mm_camera_obj_t *my_obj,
     return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_camera_cancel_super_buf_request
+ *
+ * DESCRIPTION: for burst mode in bundle, cancel the reuqest for certain amount
+ *              of matched frames from superbuf queue
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_camera_cancel_super_buf_request(mm_camera_obj_t *my_obj, uint32_t ch_id)
 {
     int32_t rc = -1;
@@ -1181,44 +1071,21 @@ int32_t mm_camera_cancel_super_buf_request(mm_camera_obj_t *my_obj, uint32_t ch_
     return rc;
 }
 
-int32_t mm_camera_start_focus(mm_camera_obj_t *my_obj,
-                              uint32_t ch_id,
-                              uint32_t sensor_idx,
-                              uint32_t focus_mode)
-{
-    int32_t rc = -1;
-    mm_evt_payload_start_focus_t payload;
-    mm_channel_t * ch_obj =
-        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
-
-    if (NULL != ch_obj) {
-        pthread_mutex_lock(&ch_obj->ch_lock);
-        pthread_mutex_unlock(&my_obj->cam_lock);
-
-        memset(&payload, 0, sizeof(mm_evt_payload_start_focus_t));
-        payload.sensor_idx = sensor_idx;
-        payload.focus_mode = focus_mode;
-        rc = mm_channel_fsm_fn(ch_obj,
-                               MM_CHANNEL_EVT_START_FOCUS,
-                               (void *)&payload,
-                               NULL);
-        if (0 != rc) {
-            mm_camera_event_t event;
-            event.event_type = MM_CAMERA_EVT_TYPE_CTRL;
-            event.e.ctrl.evt = MM_CAMERA_CTRL_EVT_AUTO_FOCUS_DONE;
-            event.e.ctrl.status = CAM_CTRL_FAILED;
-            rc = mm_camera_enqueue_evt(my_obj, &event);
-        }
-    } else {
-        pthread_mutex_unlock(&my_obj->cam_lock);
-    }
-
-    return rc;
-}
-
-int32_t mm_camera_abort_focus(mm_camera_obj_t *my_obj,
-                              uint32_t ch_id,
-                              uint32_t sensor_idx)
+/*===========================================================================
+ * FUNCTION   : mm_camera_flush_super_buf_queue
+ *
+ * DESCRIPTION: flush out all frames in the superbuf queue
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_camera_flush_super_buf_queue(mm_camera_obj_t *my_obj, uint32_t ch_id,
+                                                             uint32_t frame_idx)
 {
     int32_t rc = -1;
     mm_channel_t * ch_obj =
@@ -1229,8 +1096,8 @@ int32_t mm_camera_abort_focus(mm_camera_obj_t *my_obj,
         pthread_mutex_unlock(&my_obj->cam_lock);
 
         rc = mm_channel_fsm_fn(ch_obj,
-                               MM_CHANNEL_EVT_ABORT_FOCUS,
-                               (void*)sensor_idx,
+                               MM_CHANNEL_EVT_FLUSH_SUPER_BUF_QUEUE,
+                               (void *)frame_idx,
                                NULL);
     } else {
         pthread_mutex_unlock(&my_obj->cam_lock);
@@ -1239,11 +1106,68 @@ int32_t mm_camera_abort_focus(mm_camera_obj_t *my_obj,
     return rc;
 }
 
-int32_t mm_camera_prepare_snapshot(mm_camera_obj_t *my_obj,
+/*===========================================================================
+ * FUNCTION   : mm_camera_config_channel_notify
+ *
+ * DESCRIPTION: configures the channel notification mode
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *   @notify_mode  : notification mode
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_camera_config_channel_notify(mm_camera_obj_t *my_obj,
+                                        uint32_t ch_id,
+                                        mm_camera_super_buf_notify_mode_t notify_mode)
+{
+    int32_t rc = -1;
+    mm_channel_t * ch_obj =
+        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
+
+    if (NULL != ch_obj) {
+        pthread_mutex_lock(&ch_obj->ch_lock);
+        pthread_mutex_unlock(&my_obj->cam_lock);
+
+        rc = mm_channel_fsm_fn(ch_obj,
+                               MM_CHANNEL_EVT_CONFIG_NOTIFY_MODE,
+                               (void *)notify_mode,
+                               NULL);
+    } else {
+        pthread_mutex_unlock(&my_obj->cam_lock);
+    }
+
+    return rc;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_camera_set_stream_parms
+ *
+ * DESCRIPTION: set parameters per stream
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *   @s_id         : stream handle
+ *   @parms        : ptr to a param struct to be set to server
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ * NOTE       : Assume the parms struct buf is already mapped to server via
+ *              domain socket. Corresponding fields of parameters to be set
+ *              are already filled in by upper layer caller.
+ *==========================================================================*/
+int32_t mm_camera_set_stream_parms(mm_camera_obj_t *my_obj,
                                    uint32_t ch_id,
-                                   uint32_t sensor_idx)
+                                   uint32_t s_id,
+                                   cam_stream_parm_buffer_t *parms)
 {
     int32_t rc = -1;
+    mm_evt_paylod_set_get_stream_parms_t payload;
     mm_channel_t * ch_obj =
         mm_camera_util_get_channel_by_handler(my_obj, ch_id);
 
@@ -1251,39 +1175,14 @@ int32_t mm_camera_prepare_snapshot(mm_camera_obj_t *my_obj,
         pthread_mutex_lock(&ch_obj->ch_lock);
         pthread_mutex_unlock(&my_obj->cam_lock);
 
-        rc = mm_channel_fsm_fn(ch_obj,
-                               MM_CHANNEL_EVT_PREPARE_SNAPSHOT,
-                               (void *)sensor_idx,
-                               NULL);
-    } else {
-        pthread_mutex_unlock(&my_obj->cam_lock);
-    }
+        memset(&payload, 0, sizeof(payload));
+        payload.stream_id = s_id;
+        payload.parms = parms;
 
-    return rc;
-}
-
-int32_t mm_camera_set_stream_parm(mm_camera_obj_t *my_obj,
-                                  uint32_t ch_id,
-                                  uint32_t s_id,
-                                  mm_camera_stream_parm_t parm_type,
-                                  void* p_value)
-{
-    int32_t rc = -1;
-    mm_evt_paylod_stream_parm_t payload;
-    mm_channel_t * ch_obj =
-        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
-
-    if (NULL != ch_obj) {
-        pthread_mutex_lock(&ch_obj->ch_lock);
-        pthread_mutex_unlock(&my_obj->cam_lock);
-
-        memset(&payload,0,sizeof(mm_evt_paylod_stream_parm_t));
-        payload.parm_type = parm_type;
-        payload.value = p_value;
         rc = mm_channel_fsm_fn(ch_obj,
                                MM_CHANNEL_EVT_SET_STREAM_PARM,
-                               (void *)s_id,
-                               &payload);
+                               (void *)&payload,
+                               NULL);
     } else {
         pthread_mutex_unlock(&my_obj->cam_lock);
     }
@@ -1291,14 +1190,33 @@ int32_t mm_camera_set_stream_parm(mm_camera_obj_t *my_obj,
     return rc;
 }
 
-int32_t mm_camera_get_stream_parm(mm_camera_obj_t *my_obj,
-                                  uint32_t ch_id,
-                                  uint32_t s_id,
-                                  mm_camera_stream_parm_t parm_type,
-                                  void* p_value)
+/*===========================================================================
+ * FUNCTION   : mm_camera_get_stream_parms
+ *
+ * DESCRIPTION: get parameters per stream
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *   @s_id         : stream handle
+ *   @parms        : ptr to a param struct to be get from server
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ * NOTE       : Assume the parms struct buf is already mapped to server via
+ *              domain socket. Parameters to be get from server are already
+ *              filled in by upper layer caller. After this call, corresponding
+ *              fields of requested parameters will be filled in by server with
+ *              detailed information.
+ *==========================================================================*/
+int32_t mm_camera_get_stream_parms(mm_camera_obj_t *my_obj,
+                                   uint32_t ch_id,
+                                   uint32_t s_id,
+                                   cam_stream_parm_buffer_t *parms)
 {
     int32_t rc = -1;
-    mm_evt_paylod_stream_parm_t payload;
+    mm_evt_paylod_set_get_stream_parms_t payload;
     mm_channel_t * ch_obj =
         mm_camera_util_get_channel_by_handler(my_obj, ch_id);
 
@@ -1306,13 +1224,14 @@ int32_t mm_camera_get_stream_parm(mm_camera_obj_t *my_obj,
         pthread_mutex_lock(&ch_obj->ch_lock);
         pthread_mutex_unlock(&my_obj->cam_lock);
 
-        memset(&payload,0,sizeof(mm_evt_paylod_stream_parm_t));
-        payload.parm_type = parm_type;
-        payload.value = p_value;
+        memset(&payload, 0, sizeof(payload));
+        payload.stream_id = s_id;
+        payload.parms = parms;
+
         rc = mm_channel_fsm_fn(ch_obj,
                                MM_CHANNEL_EVT_GET_STREAM_PARM,
-                               (void *)s_id,
-                               &payload);
+                               (void *)&payload,
+                               NULL);
     } else {
         pthread_mutex_unlock(&my_obj->cam_lock);
     }
@@ -1320,594 +1239,403 @@ int32_t mm_camera_get_stream_parm(mm_camera_obj_t *my_obj,
     return rc;
 }
 
-int32_t mm_camera_send_private_ioctl(mm_camera_obj_t *my_obj,
-                                     uint32_t cmd_id,
-                                     uint32_t cmd_length,
-                                     void *cmd)
+/*===========================================================================
+ * FUNCTION   : mm_camera_do_stream_action
+ *
+ * DESCRIPTION: request server to perform stream based action. Maybe removed later
+ *              if the functionality is included in mm_camera_set_parms
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *   @s_id         : stream handle
+ *   @actions      : ptr to an action struct buf to be performed by server
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ * NOTE       : Assume the action struct buf is already mapped to server via
+ *              domain socket. Actions to be performed by server are already
+ *              filled in by upper layer caller.
+ *==========================================================================*/
+int32_t mm_camera_do_stream_action(mm_camera_obj_t *my_obj,
+                                   uint32_t ch_id,
+                                   uint32_t stream_id,
+                                   void *actions)
 {
     int32_t rc = -1;
+    mm_evt_paylod_do_stream_action_t payload;
+    mm_channel_t * ch_obj =
+        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
 
-    struct msm_camera_v4l2_ioctl_t v4l2_ioctl;
+    if (NULL != ch_obj) {
+        pthread_mutex_lock(&ch_obj->ch_lock);
+        pthread_mutex_unlock(&my_obj->cam_lock);
 
-    CDBG("%s: cmd = %p, length = %d",
-               __func__, cmd, cmd_length);
-    memset(&v4l2_ioctl, 0, sizeof(v4l2_ioctl));
-    v4l2_ioctl.id = cmd_id;
-    v4l2_ioctl.len = cmd_length;
-    v4l2_ioctl.ioctl_ptr = cmd;
-    rc = ioctl (my_obj->ctrl_fd, MSM_CAM_V4L2_IOCTL_PRIVATE_GENERAL, &v4l2_ioctl);
+        memset(&payload, 0, sizeof(payload));
+        payload.stream_id = stream_id;
+        payload.actions = actions;
 
-    if(rc < 0) {
-        CDBG_ERROR("%s: cmd = %p, id = %d, length = %d, rc = %d\n",
-                   __func__, cmd, cmd_id, cmd_length, rc);
+        rc = mm_channel_fsm_fn(ch_obj,
+                               MM_CHANNEL_EVT_DO_STREAM_ACTION,
+                               (void*)&payload,
+                               NULL);
     } else {
-        rc = 0;
+        pthread_mutex_unlock(&my_obj->cam_lock);
     }
 
     return rc;
 }
 
-int32_t mm_camera_ctrl_set_specialEffect (mm_camera_obj_t *my_obj, int32_t effect) {
-    struct v4l2_control ctrl;
-    if (effect == CAMERA_EFFECT_MAX)
-        effect = CAMERA_EFFECT_OFF;
-    int rc = 0;
+/*===========================================================================
+ * FUNCTION   : mm_camera_map_stream_buf
+ *
+ * DESCRIPTION: mapping stream buffer via domain socket to server
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *   @s_id         : stream handle
+ *   @buf_type     : type of buffer to be mapped. could be following values:
+ *                   CAM_MAPPING_BUF_TYPE_STREAM_BUF
+ *                   CAM_MAPPING_BUF_TYPE_STREAM_INFO
+ *                   CAM_MAPPING_BUF_TYPE_OFFLINE_INPUT_BUF
+ *   @buf_idx      : index of buffer within the stream buffers, only valid if
+ *                   buf_type is CAM_MAPPING_BUF_TYPE_STREAM_BUF or
+ *                   CAM_MAPPING_BUF_TYPE_OFFLINE_INPUT_BUF
+ *   @plane_idx    : plane index. If all planes share the same fd,
+ *                   plane_idx = -1; otherwise, plean_idx is the
+ *                   index to plane (0..num_of_planes)
+ *   @fd           : file descriptor of the buffer
+ *   @size         : size of the buffer
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_camera_map_stream_buf(mm_camera_obj_t *my_obj,
+                                 uint32_t ch_id,
+                                 uint32_t stream_id,
+                                 uint8_t buf_type,
+                                 uint32_t buf_idx,
+                                 int32_t plane_idx,
+                                 int fd,
+                                 uint32_t size)
+{
+    int32_t rc = -1;
+    mm_evt_paylod_map_stream_buf_t payload;
+    mm_channel_t * ch_obj =
+        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
 
-    ctrl.id = MSM_V4L2_PID_EFFECT;
-    ctrl.value = effect;
-    rc = ioctl(my_obj->ctrl_fd, VIDIOC_S_CTRL, &ctrl);
-    return (rc >= 0)? 0: -1;;
+    if (NULL != ch_obj) {
+        pthread_mutex_lock(&ch_obj->ch_lock);
+        pthread_mutex_unlock(&my_obj->cam_lock);
+
+        memset(&payload, 0, sizeof(payload));
+        payload.stream_id = stream_id;
+        payload.buf_type = buf_type;
+        payload.buf_idx = buf_idx;
+        payload.plane_idx = plane_idx;
+        payload.fd = fd;
+        payload.size = size;
+        rc = mm_channel_fsm_fn(ch_obj,
+                               MM_CHANNEL_EVT_MAP_STREAM_BUF,
+                               (void*)&payload,
+                               NULL);
+    } else {
+        pthread_mutex_unlock(&my_obj->cam_lock);
+    }
+
+    return rc;
 }
 
-int32_t mm_camera_ctrl_set_auto_focus (mm_camera_obj_t *my_obj, int32_t value)
+/*===========================================================================
+ * FUNCTION   : mm_camera_unmap_stream_buf
+ *
+ * DESCRIPTION: unmapping stream buffer via domain socket to server
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @ch_id        : channel handle
+ *   @s_id         : stream handle
+ *   @buf_type     : type of buffer to be mapped. could be following values:
+ *                   CAM_MAPPING_BUF_TYPE_STREAM_BUF
+ *                   CAM_MAPPING_BUF_TYPE_STREAM_INFO
+ *                   CAM_MAPPING_BUF_TYPE_OFFLINE_INPUT_BUF
+ *   @buf_idx      : index of buffer within the stream buffers, only valid if
+ *                   buf_type is CAM_MAPPING_BUF_TYPE_STREAM_BUF or
+ *                   CAM_MAPPING_BUF_TYPE_OFFLINE_INPUT_BUF
+ *   @plane_idx    : plane index. If all planes share the same fd,
+ *                   plane_idx = -1; otherwise, plean_idx is the
+ *                   index to plane (0..num_of_planes)
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_camera_unmap_stream_buf(mm_camera_obj_t *my_obj,
+                                   uint32_t ch_id,
+                                   uint32_t stream_id,
+                                   uint8_t buf_type,
+                                   uint32_t buf_idx,
+                                   int32_t plane_idx)
+{
+    int32_t rc = -1;
+    mm_evt_paylod_unmap_stream_buf_t payload;
+    mm_channel_t * ch_obj =
+        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
+
+    if (NULL != ch_obj) {
+        pthread_mutex_lock(&ch_obj->ch_lock);
+        pthread_mutex_unlock(&my_obj->cam_lock);
+
+        memset(&payload, 0, sizeof(payload));
+        payload.stream_id = stream_id;
+        payload.buf_type = buf_type;
+        payload.buf_idx = buf_idx;
+        payload.plane_idx = plane_idx;
+        rc = mm_channel_fsm_fn(ch_obj,
+                               MM_CHANNEL_EVT_UNMAP_STREAM_BUF,
+                               (void*)&payload,
+                               NULL);
+    } else {
+        pthread_mutex_unlock(&my_obj->cam_lock);
+    }
+
+    return rc;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_camera_evt_sub
+ *
+ * DESCRIPTION: subscribe/unsubscribe event notify from kernel
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @reg_flag     : 1 -- subscribe ; 0 -- unsubscribe
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_camera_evt_sub(mm_camera_obj_t * my_obj,
+                          uint8_t reg_flag)
 {
     int32_t rc = 0;
-    struct v4l2_queryctrl queryctrl;
-
-    memset (&queryctrl, 0, sizeof (queryctrl));
-    queryctrl.id = V4L2_CID_FOCUS_AUTO;
-
-    if(value != 0 && value != 1) {
-        CDBG("%s:boolean required, invalid value = %d\n",__func__, value);
-        return -1;
-    }
-    if (-1 == ioctl (my_obj->ctrl_fd, VIDIOC_QUERYCTRL, &queryctrl)) {
-        CDBG ("V4L2_CID_FOCUS_AUTO is not supported\n");
-    } else if (queryctrl.flags & V4L2_CTRL_FLAG_DISABLED) {
-        CDBG ("%s:V4L2_CID_FOCUS_AUTO is not supported\n", __func__);
-    } else {
-        if(0 != (rc =  mm_camera_util_s_ctrl(my_obj->ctrl_fd,
-                V4L2_CID_FOCUS_AUTO, value))){
-            CDBG("%s: error, id=0x%x, value=%d, rc = %d\n",
-                     __func__, V4L2_CID_FOCUS_AUTO, value, rc);
-            rc = -1;
-        }
-    }
-    return rc;
-}
-
-int32_t mm_camera_ctrl_set_whitebalance (mm_camera_obj_t *my_obj, int32_t mode) {
-
-    int32_t rc = 0, auto_wb, temperature;
-    uint32_t id_auto_wb, id_temperature;
-
-    id_auto_wb = V4L2_CID_AUTO_WHITE_BALANCE;
-    id_temperature = V4L2_CID_WHITE_BALANCE_TEMPERATURE;
-
-    switch(mode) {
-    case CAMERA_WB_DAYLIGHT:
-        auto_wb = 0;
-        temperature = 6500;
-        break;
-    case CAMERA_WB_INCANDESCENT:
-        auto_wb = 0;
-        temperature = 2800;
-        break;
-    case CAMERA_WB_FLUORESCENT:
-        auto_wb = 0;
-        temperature = 4200;
-        break;
-    case CAMERA_WB_CLOUDY_DAYLIGHT:
-        auto_wb = 0;
-        temperature = 7500;
-        break;
-    case CAMERA_WB_AUTO:
-    default:
-        auto_wb = 1; /* TRUE */
-        temperature = 0;
-        break;
-    }
-
-    rc =  mm_camera_util_s_ctrl(my_obj->ctrl_fd, id_auto_wb, auto_wb);
-    if(0 != rc){
-        CDBG_ERROR("%s: error, V4L2_CID_AUTO_WHITE_BALANCE value = %d, rc = %d\n",
-            __func__, auto_wb, rc);
-        return rc;
-    }
-    if (!auto_wb) {
-        rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd, id_temperature, temperature);
-        if (0 != rc) {
-            CDBG_ERROR("%s: error, V4L2_CID_WHITE_BALANCE_TEMPERATURE value = %d, rc = %d\n",
-                __func__, temperature, rc);
-            return rc;
-        }
-    }
-    return rc;
-}
-
-int32_t mm_camera_set_general_parm(mm_camera_obj_t * my_obj,
-                                   mm_camera_parm_type_t parm_type,
-                                   void* p_value)
-{
-    int rc = -1;
-    int isZSL =0;
-
-    switch(parm_type)  {
-    case MM_CAMERA_PARM_EXPOSURE:
-        rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd,
-                                   MSM_V4L2_PID_EXP_METERING,
-                                   *((int32_t *)p_value));
-        break;
-    case MM_CAMERA_PARM_SHARPNESS:
-        rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd,
-                                   V4L2_CID_SHARPNESS,
-                                   *((int32_t *)p_value));
-        break;
-    case MM_CAMERA_PARM_CONTRAST:
-        rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd,
-                                   V4L2_CID_CONTRAST,
-                                   *((int32_t *)p_value));
-        break;
-    case MM_CAMERA_PARM_SATURATION:
-        rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd,
-                                   V4L2_CID_SATURATION,
-                                   *((int32_t *)p_value));
-        break;
-    case MM_CAMERA_PARM_BRIGHTNESS:
-        rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd,
-                                   V4L2_CID_BRIGHTNESS,
-                                   *((int32_t *)p_value));
-        break;
-    case MM_CAMERA_PARM_WHITE_BALANCE:
-        rc = mm_camera_ctrl_set_whitebalance (my_obj, *((int32_t *)p_value));
-        break;
-    case MM_CAMERA_PARM_ISO:
-        rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd,
-                                   MSM_V4L2_PID_ISO,
-                                   *((int32_t *)p_value));
-        break;
-    case MM_CAMERA_PARM_ZOOM:
-        rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd,
-                                   V4L2_CID_ZOOM_ABSOLUTE,
-                                   *((int32_t *)p_value));
-        break;
-    case MM_CAMERA_PARM_LUMA_ADAPTATION:
-        rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd,
-                                   MSM_V4L2_PID_LUMA_ADAPTATION,
-                                   *((int32_t *)p_value));
-        break;
-    case MM_CAMERA_PARM_ANTIBANDING:
-        rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd,
-                                   V4L2_CID_POWER_LINE_FREQUENCY,
-                                   *((int32_t *)p_value));
-        break;
-    case MM_CAMERA_PARM_CONTINUOUS_AF:
-        rc = mm_camera_ctrl_set_auto_focus(my_obj,
-                                           *((int32_t *)p_value));
-        break;
-    case MM_CAMERA_PARM_HJR:
-        rc = mm_camera_util_s_ctrl(my_obj->ctrl_fd,
-                                   MSM_V4L2_PID_HJR,
-                                   *((int32_t *)p_value));
-        break;
-    case MM_CAMERA_PARM_EFFECT:
-        rc = mm_camera_ctrl_set_specialEffect (my_obj,
-                                               *((int32_t *)p_value));
-        break;
-    case MM_CAMERA_PARM_FPS:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_FPS,
-                                            sizeof(uint32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_FPS_MODE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_FPS_MODE,
-                                            sizeof(int32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_EXPOSURE_COMPENSATION:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_EXPOSURE_COMPENSATION,
-                                            sizeof(int32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_LED_MODE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_LED_MODE,
-                                            sizeof(int32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_ROLLOFF:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_ROLLOFF,
-                                            sizeof(int32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_MODE:
-        my_obj->current_mode = *((camera_mode_t *)p_value);
-        break;
-    case MM_CAMERA_PARM_FOCUS_RECT:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_FOCUS_RECT,
-                                            sizeof(int32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_AEC_ROI:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_AEC_ROI,
-                                            sizeof(cam_set_aec_roi_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_AF_ROI:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_AF_ROI,
-                                            sizeof(roi_info_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_FOCUS_MODE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_AF_MODE,
-                                            sizeof(int32_t),
-                                            p_value);
-        break;
-#if 0 /* to be enabled later: @punits */
-    case MM_CAMERA_PARM_AF_MTR_AREA:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_AF_MTR_AREA,
-                                            sizeof(af_mtr_area_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_AEC_MTR_AREA:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_AEC_MTR_AREA,
-                                            sizeof(aec_mtr_area_t),
-                                            p_value);
-        break;
-#endif
-    case MM_CAMERA_PARM_CAF_ENABLE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_CAF,
-                                            sizeof(uint32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_BESTSHOT_MODE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_BESTSHOT_MODE,
-                                            sizeof(int32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_VIDEO_DIS:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_VIDEO_DIS_PARAMS,
-                                            sizeof(video_dis_param_ctrl_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_VIDEO_ROT:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_VIDEO_ROT_PARAMS,
-                                            sizeof(video_rotation_param_ctrl_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_SCE_FACTOR:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_SCE_FACTOR,
-                                            sizeof(int32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_FD:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_FD,
-                                            sizeof(fd_set_parm_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_AEC_LOCK:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_AEC_LOCK,
-                                            sizeof(int32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_AWB_LOCK:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_AWB_LOCK,
-                                            sizeof(int32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_MCE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_MCE,
-                                            sizeof(int32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_HORIZONTAL_VIEW_ANGLE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_GET_PARM_HORIZONTAL_VIEW_ANGLE,
-                                            sizeof(focus_distances_info_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_VERTICAL_VIEW_ANGLE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_GET_PARM_VERTICAL_VIEW_ANGLE,
-                                            sizeof(focus_distances_info_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_RESET_LENS_TO_INFINITY:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_RESET_LENS_TO_INFINITY,
-                                            0, NULL);
-        break;
-    case MM_CAMERA_PARM_SNAPSHOTDATA:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_GET_PARM_SNAPSHOTDATA,
-                                            sizeof(snapshotData_info_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_HFR:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_HFR,
-                                            sizeof(int32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_REDEYE_REDUCTION:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_REDEYE_REDUCTION,
-                                            sizeof(int32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_WAVELET_DENOISE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_WAVELET_DENOISE,
-                                            sizeof(denoise_param_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_3D_DISPLAY_DISTANCE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_3D_DISPLAY_DISTANCE,
-                                            sizeof(float),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_3D_VIEW_ANGLE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_3D_VIEW_ANGLE,
-                                            sizeof(uint32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_ZOOM_RATIO:
-        break;
-    case MM_CAMERA_PARM_HISTOGRAM:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_HISTOGRAM,
-                                            sizeof(int8_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_ASD_ENABLE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                          CAMERA_SET_ASD_ENABLE,
-                                          sizeof(uint32_t),
-                                          p_value);
-        break;
-    case MM_CAMERA_PARM_RECORDING_HINT:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_RECORDING_HINT,
-                                            sizeof(uint32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_PREVIEW_FORMAT:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_PREVIEW_FORMAT,
-                                            sizeof(uint32_t),
-                                            p_value);
-        break;
-    /* TODO: need code review to determine any of the three is redundent
-     * MM_CAMERA_PARM_DIS_ENABLE,
-     * MM_CAMERA_PARM_FULL_LIVESHOT,
-     * MM_CAMERA_PARM_LOW_POWER_MODE*/
-    case MM_CAMERA_PARM_DIS_ENABLE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_DIS_ENABLE,
-                                            sizeof(uint32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_FULL_LIVESHOT:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_FULL_LIVESHOT,
-                                            sizeof(uint32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_LOW_POWER_MODE:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_LOW_POWER_MODE,
-                                            sizeof(uint32_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_HDR:
-        rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_SET_PARM_HDR,
-                                            sizeof(exp_bracketing_t),
-                                            p_value);
-        break;
-    case MM_CAMERA_PARM_MOBICAT:
-	    rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                            CAMERA_ENABLE_MOBICAT,
-                                            sizeof(mm_cam_mobicat_info_t),
-                                            p_value);
-    default:
-        CDBG("%s: default: parm %d not supported\n", __func__, parm_type);
-        break;
-    }
-    return rc;
-}
-
-int32_t mm_camera_util_private_s_ctrl(int32_t fd, uint32_t id, void* value)
-{
-    int rc = -1;
-    struct msm_camera_v4l2_ioctl_t v4l2_ioctl;
-
-    memset(&v4l2_ioctl, 0, sizeof(v4l2_ioctl));
-    v4l2_ioctl.id = id;
-    v4l2_ioctl.ioctl_ptr = value;
-    rc = ioctl (fd, MSM_CAM_V4L2_IOCTL_PRIVATE_S_CTRL, &v4l2_ioctl);
-
-    if(rc < 0) {
-        CDBG_ERROR("%s: fd=%d, S_CTRL, id=0x%x, value = 0x%x, rc = %d\n",
-                   __func__, fd, id, (uint32_t)value, rc);
-        rc = -1;
-    } else {
-        rc = 0;
-    }
-    return rc;
-}
-
-int32_t mm_camera_send_native_ctrl_cmd(mm_camera_obj_t * my_obj,
-                                              cam_ctrl_type type,
-                                              uint32_t length,
-                                              void *value)
-{
-    return mm_camera_send_native_ctrl_timeout_cmd(my_obj, type,
-                                                  length, value,
-                                                  1000);
-}
-
-int32_t mm_camera_send_native_ctrl_timeout_cmd(mm_camera_obj_t * my_obj,
-                                                      cam_ctrl_type type,
-                                                      uint32_t length,
-                                                      void *value,
-                                                      int timeout)
-{
-    int rc = -1;
-    struct msm_ctrl_cmd ctrl_cmd;
-
-    memset(&ctrl_cmd, 0, sizeof(ctrl_cmd));
-    ctrl_cmd.type = type;
-    ctrl_cmd.length = (uint16_t)length;
-    ctrl_cmd.timeout_ms = timeout;
-    ctrl_cmd.value = value;
-    ctrl_cmd.status = (uint16_t)CAM_CTRL_SUCCESS;
-    rc = mm_camera_util_private_s_ctrl(my_obj->ctrl_fd,
-                               MSM_V4L2_PID_CTRL_CMD,
-                               (void*)&ctrl_cmd);
-    CDBG("%s: type=%d, rc = %d, status = %d\n",
-        __func__, type, rc, ctrl_cmd.status);
-    if(rc != 0 || ((ctrl_cmd.status != CAM_CTRL_ACCEPTED) &&
-        (ctrl_cmd.status != CAM_CTRL_SUCCESS) &&
-        (ctrl_cmd.status != CAM_CTRL_INVALID_PARM)))
-        rc = -1;
-    return rc;
-}
-
-int mm_camera_evt_sub(mm_camera_obj_t * my_obj,
-                      mm_camera_event_type_t evt_type,
-                      int reg_count)
-{
-    int rc = 0;
     struct v4l2_event_subscription sub;
 
     memset(&sub, 0, sizeof(sub));
-    sub.type = V4L2_EVENT_PRIVATE_START+MSM_CAM_APP_NOTIFY_EVENT;
-    if(reg_count == 0) {
+    sub.type = MSM_CAMERA_V4L2_EVENT_TYPE;
+    sub.id = MSM_CAMERA_MSM_NOTIFY;
+    if(FALSE == reg_flag) {
         /* unsubscribe */
-        if(my_obj->evt_type_mask == (uint32_t)(1 << evt_type)) {
-            rc = ioctl(my_obj->ctrl_fd, VIDIOC_UNSUBSCRIBE_EVENT, &sub);
-            CDBG("%s: unsubscribe event 0x%x, rc = %d", __func__, sub.type, rc);
-            sub.type = V4L2_EVENT_PRIVATE_START+MSM_CAM_APP_NOTIFY_ERROR_EVENT;
-            rc = ioctl(my_obj->ctrl_fd, VIDIOC_UNSUBSCRIBE_EVENT, &sub);
-            CDBG("%s: unsubscribe event 0x%x, rc = %d", __func__, sub.type, rc);
+        rc = ioctl(my_obj->ctrl_fd, VIDIOC_UNSUBSCRIBE_EVENT, &sub);
+        if (rc < 0) {
+            CDBG_ERROR("%s: unsubscribe event rc = %d", __func__, rc);
+            return rc;
         }
-        my_obj->evt_type_mask &= ~(1 << evt_type);
-        if(my_obj->evt_type_mask == 0) {
-            /* remove evt fd from the polling thraed when unreg the last event */
-            mm_camera_poll_thread_del_poll_fd(&my_obj->evt_poll_thread, my_obj->my_hdl);
-        }
+        /* remove evt fd from the polling thraed when unreg the last event */
+        rc = mm_camera_poll_thread_del_poll_fd(&my_obj->evt_poll_thread,
+                                               my_obj->my_hdl,
+                                               mm_camera_sync_call);
     } else {
-        if(!my_obj->evt_type_mask) {
-            /* this is the first reg event */
-            rc = ioctl(my_obj->ctrl_fd, VIDIOC_SUBSCRIBE_EVENT, &sub);
-            CDBG("%s: subscribe event 0x%x, rc = %d", __func__, sub.type, rc);
-            if (rc < 0)
-                goto end;
-            sub.type = V4L2_EVENT_PRIVATE_START+MSM_CAM_APP_NOTIFY_ERROR_EVENT;
-            rc = ioctl(my_obj->ctrl_fd, VIDIOC_SUBSCRIBE_EVENT, &sub);
-            CDBG("%s: subscribe event 0x%x, rc = %d", __func__, sub.type, rc);
-            if (rc < 0)
-                goto end;
+        rc = ioctl(my_obj->ctrl_fd, VIDIOC_SUBSCRIBE_EVENT, &sub);
+        if (rc < 0) {
+            CDBG_ERROR("%s: subscribe event rc = %d", __func__, rc);
+            return rc;
         }
-        my_obj->evt_type_mask |= (1 << evt_type);
-        if(my_obj->evt_type_mask == (uint32_t)(1 << evt_type)) {
-            /* add evt fd to polling thread when subscribe the first event */
-            rc = mm_camera_poll_thread_add_poll_fd(&my_obj->evt_poll_thread,
-                                                   my_obj->my_hdl,
-                                                   my_obj->ctrl_fd,
-                                                   mm_camera_event_notify,
-                                                   (void*)my_obj);
-        }
+        /* add evt fd to polling thread when subscribe the first event */
+        rc = mm_camera_poll_thread_add_poll_fd(&my_obj->evt_poll_thread,
+                                               my_obj->my_hdl,
+                                               my_obj->ctrl_fd,
+                                               mm_camera_event_notify,
+                                               (void*)my_obj,
+                                               mm_camera_sync_call);
     }
-end:
     return rc;
 }
 
-int32_t mm_camera_util_sendmsg(mm_camera_obj_t *my_obj, void *msg, uint32_t buf_size, int sendfd)
+/*===========================================================================
+ * FUNCTION   : mm_camera_util_wait_for_event
+ *
+ * DESCRIPTION: utility function to wait for certain events
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @evt_mask     : mask for events to be waited. Any of event in the mask would
+ *                   trigger the wait to end
+ *   @status       : status of the event
+ *
+ * RETURN     : none
+ *==========================================================================*/
+void mm_camera_util_wait_for_event(mm_camera_obj_t *my_obj,
+                                   uint32_t evt_mask,
+                                   int32_t *status)
 {
-    return mm_camera_socket_sendmsg(my_obj->ds_fd, msg, buf_size, sendfd);
+    pthread_mutex_lock(&my_obj->evt_lock);
+    while (!(my_obj->evt_rcvd.server_event_type & evt_mask)) {
+        pthread_cond_wait(&my_obj->evt_cond, &my_obj->evt_lock);
+    }
+    *status = my_obj->evt_rcvd.status;
+    /* reset local storage for recieved event for next event */
+    memset(&my_obj->evt_rcvd, 0, sizeof(mm_camera_event_t));
+    pthread_mutex_unlock(&my_obj->evt_lock);
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_camera_util_sendmsg
+ *
+ * DESCRIPTION: utility function to send msg via domain socket
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @msg          : message to be sent
+ *   @buf_size     : size of the message to be sent
+ *   @sendfd       : >0 if any file descriptor need to be passed across process
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_camera_util_sendmsg(mm_camera_obj_t *my_obj,
+                               void *msg,
+                               uint32_t buf_size,
+                               int sendfd)
+{
+    int32_t rc = -1;
+    int32_t status;
+
+    /* need to lock msg_lock, since sendmsg until reposonse back is deemed as one operation*/
+    pthread_mutex_lock(&my_obj->msg_lock);
+    if(mm_camera_socket_sendmsg(my_obj->ds_fd, msg, buf_size, sendfd) > 0) {
+        /* wait for event that mapping/unmapping is done */
+        mm_camera_util_wait_for_event(my_obj, CAM_EVENT_TYPE_MAP_UNMAP_DONE, &status);
+        if (MSM_CAMERA_STATUS_SUCCESS == status) {
+            rc = 0;
+        }
+    }
+    pthread_mutex_unlock(&my_obj->msg_lock);
+    return rc;
+}
+
+/*===========================================================================
+ * FUNCTION   : mm_camera_map_buf
+ *
+ * DESCRIPTION: mapping camera buffer via domain socket to server
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @buf_type     : type of buffer to be mapped. could be following values:
+ *                   CAM_MAPPING_BUF_TYPE_CAPABILITY
+ *                   CAM_MAPPING_BUF_TYPE_SETPARM_BUF
+ *                   CAM_MAPPING_BUF_TYPE_GETPARM_BUF
+ *   @fd           : file descriptor of the buffer
+ *   @size         : size of the buffer
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_camera_map_buf(mm_camera_obj_t *my_obj,
-                          int ext_mode,
-                          int idx,
+                          uint8_t buf_type,
                           int fd,
                           uint32_t size)
 {
+    int32_t rc = 0;
     cam_sock_packet_t packet;
     memset(&packet, 0, sizeof(cam_sock_packet_t));
-    packet.msg_type = CAM_SOCK_MSG_TYPE_FD_MAPPING;
-    packet.payload.frame_fd_map.ext_mode = ext_mode;
-    packet.payload.frame_fd_map.frame_idx = idx;
-    packet.payload.frame_fd_map.fd = fd;
-    packet.payload.frame_fd_map.size = size;
-
-    return mm_camera_util_sendmsg(my_obj, &packet,
-                                  sizeof(cam_sock_packet_t),
-                                  packet.payload.frame_fd_map.fd);
+    packet.msg_type = CAM_MAPPING_TYPE_FD_MAPPING;
+    packet.payload.buf_map.type = buf_type;
+    packet.payload.buf_map.fd = fd;
+    packet.payload.buf_map.size = size;
+    rc = mm_camera_util_sendmsg(my_obj,
+                                &packet,
+                                sizeof(cam_sock_packet_t),
+                                fd);
+    pthread_mutex_unlock(&my_obj->cam_lock);
+    return rc;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_camera_unmap_buf
+ *
+ * DESCRIPTION: unmapping camera buffer via domain socket to server
+ *
+ * PARAMETERS :
+ *   @my_obj       : camera object
+ *   @buf_type     : type of buffer to be mapped. could be following values:
+ *                   CAM_MAPPING_BUF_TYPE_CAPABILITY
+ *                   CAM_MAPPING_BUF_TYPE_SETPARM_BUF
+ *                   CAM_MAPPING_BUF_TYPE_GETPARM_BUF
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_camera_unmap_buf(mm_camera_obj_t *my_obj,
-                            int ext_mode,
-                            int idx)
+                            uint8_t buf_type)
 {
+    int32_t rc = 0;
     cam_sock_packet_t packet;
     memset(&packet, 0, sizeof(cam_sock_packet_t));
-    packet.msg_type = CAM_SOCK_MSG_TYPE_FD_UNMAPPING;
-    packet.payload.frame_fd_unmap.ext_mode = ext_mode;
-    packet.payload.frame_fd_unmap.frame_idx = idx;
-    return mm_camera_util_sendmsg(my_obj, &packet,
-                                  sizeof(cam_sock_packet_t),
-                                  packet.payload.frame_fd_map.fd);
+    packet.msg_type = CAM_MAPPING_TYPE_FD_UNMAPPING;
+    packet.payload.buf_unmap.type = buf_type;
+    rc = mm_camera_util_sendmsg(my_obj,
+                                &packet,
+                                sizeof(cam_sock_packet_t),
+                                0);
+    pthread_mutex_unlock(&my_obj->cam_lock);
+    return rc;
 }
 
-int32_t mm_camera_util_s_ctrl(int32_t fd,  uint32_t id, int32_t value)
+/*===========================================================================
+ * FUNCTION   : mm_camera_util_s_ctrl
+ *
+ * DESCRIPTION: utility function to send v4l2 ioctl for s_ctrl
+ *
+ * PARAMETERS :
+ *   @fd      : file descritpor for sending ioctl
+ *   @id      : control id
+ *   @value   : value of the ioctl to be sent
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
+int32_t mm_camera_util_s_ctrl(int32_t fd,  uint32_t id, int32_t *value)
 {
     int rc = 0;
     struct v4l2_control control;
 
     memset(&control, 0, sizeof(control));
     control.id = id;
-    control.value = value;
-    rc = ioctl (fd, VIDIOC_S_CTRL, &control);
+    if (value != NULL) {
+        control.value = *value;
+    }
+    rc = ioctl(fd, VIDIOC_S_CTRL, &control);
 
     CDBG("%s: fd=%d, S_CTRL, id=0x%x, value = 0x%x, rc = %d\n",
          __func__, fd, id, (uint32_t)value, rc);
+    if (value != NULL) {
+        *value = control.value;
+    }
     return (rc >= 0)? 0 : -1;
 }
 
+/*===========================================================================
+ * FUNCTION   : mm_camera_util_g_ctrl
+ *
+ * DESCRIPTION: utility function to send v4l2 ioctl for g_ctrl
+ *
+ * PARAMETERS :
+ *   @fd      : file descritpor for sending ioctl
+ *   @id      : control id
+ *   @value   : value of the ioctl to be sent
+ *
+ * RETURN     : int32_t type of status
+ *              0  -- success
+ *              -1 -- failure
+ *==========================================================================*/
 int32_t mm_camera_util_g_ctrl( int32_t fd, uint32_t id, int32_t *value)
 {
     int rc = 0;
@@ -1915,254 +1643,13 @@ int32_t mm_camera_util_g_ctrl( int32_t fd, uint32_t id, int32_t *value)
 
     memset(&control, 0, sizeof(control));
     control.id = id;
-    control.value = (int32_t)value;
-    rc = ioctl (fd, VIDIOC_G_CTRL, &control);
-    *value = control.value;
+    if (value != NULL) {
+        control.value = *value;
+    }
+    rc = ioctl(fd, VIDIOC_G_CTRL, &control);
     CDBG("%s: fd=%d, G_CTRL, id=0x%x, rc = %d\n", __func__, fd, id, rc);
+    if (value != NULL) {
+        *value = control.value;
+    }
     return (rc >= 0)? 0 : -1;
-}
-
-uint8_t mm_camera_util_get_pp_mask(mm_camera_obj_t *my_obj)
-{
-    uint8_t pp_mask = 0;
-    int32_t rc = 0;
-
-    /* query pp mask from mctl */
-    rc = mm_camera_send_native_ctrl_cmd(my_obj,
-                                        CAMERA_GET_PP_MASK,
-                                        sizeof(uint8_t),
-                                        (void *)&pp_mask);
-    if (0 != rc) {
-        CDBG_ERROR("%s: error getting post processing mask (rc=%d)",
-                   __func__, rc);
-    }
-
-    return pp_mask;
-}
-
-int32_t mm_camera_open_repro_isp(mm_camera_obj_t *my_obj,
-                                 uint32_t ch_id,
-                                 mm_camera_repro_isp_type_t repro_isp_type,
-                                 uint32_t *repro_isp_handle)
-{
-    int32_t rc = -1;
-    uint32_t repro_hdl = 0;
-    mm_channel_t * ch_obj =
-        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
-
-    if (NULL != ch_obj) {
-        pthread_mutex_lock(&ch_obj->ch_lock);
-        pthread_mutex_unlock(&my_obj->cam_lock);
-
-        rc = mm_channel_fsm_fn(ch_obj,
-                               MM_CHANNEL_EVT_OPEN_REPRO_ISP,
-                               (void*)repro_isp_type,
-                               (void*)&repro_hdl);
-    } else {
-        pthread_mutex_unlock(&my_obj->cam_lock);
-        CDBG_ERROR("%s: no channel obj exist", __func__);
-    }
-
-    if (NULL != repro_isp_handle) {
-        *repro_isp_handle = repro_hdl;
-    }
-    return rc;
-}
-
-int32_t mm_camera_config_repro_isp(mm_camera_obj_t *my_obj,
-                                   uint32_t ch_id,
-                                   uint32_t repro_isp_handle,
-                                   mm_camera_repro_isp_config_t *config)
-{
-    int32_t rc = -1;
-    mm_channel_t * ch_obj =
-        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
-    mm_evt_paylod_config_repro_isp_t payload;
-
-    if (NULL != ch_obj) {
-        pthread_mutex_lock(&ch_obj->ch_lock);
-        pthread_mutex_unlock(&my_obj->cam_lock);
-
-        memset(&payload, 0, sizeof(mm_evt_paylod_config_repro_isp_t));
-        payload.repro_isp_handle = repro_isp_handle;
-        payload.config = config;
-        rc = mm_channel_fsm_fn(ch_obj,
-                               MM_CHANNEL_EVT_CONFIG_REPRO_ISP,
-                               (void*)&payload,
-                               NULL);
-    } else {
-        pthread_mutex_unlock(&my_obj->cam_lock);
-        CDBG_ERROR("%s: no channel obj exist", __func__);
-    }
-
-    return rc;
-}
-
-int32_t mm_camera_attach_stream_to_repro_isp(mm_camera_obj_t *my_obj,
-                                             uint32_t ch_id,
-                                             uint32_t repro_isp_handle,
-                                             uint32_t stream_id)
-{
-    int32_t rc = -1;
-    mm_channel_t * ch_obj =
-        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
-    mm_evt_paylod_stream_to_repro_isp_t payload;
-
-    if (NULL != ch_obj) {
-        pthread_mutex_lock(&ch_obj->ch_lock);
-        pthread_mutex_unlock(&my_obj->cam_lock);
-
-        memset(&payload, 0, sizeof(mm_evt_paylod_stream_to_repro_isp_t));
-        payload.repro_isp_handle = repro_isp_handle;
-        payload.stream_id = stream_id;
-        rc = mm_channel_fsm_fn(ch_obj,
-                               MM_CHANNEL_EVT_ATTACH_STREAM_TO_REPRO_ISP,
-                               (void*)&payload,
-                               NULL);
-    } else {
-        pthread_mutex_unlock(&my_obj->cam_lock);
-        CDBG_ERROR("%s: no channel obj exist", __func__);
-    }
-
-    return rc;
-}
-
-int32_t mm_camera_start_repro_isp(mm_camera_obj_t *my_obj,
-                                  uint32_t ch_id,
-                                  uint32_t repro_isp_handle,
-                                  uint32_t stream_id)
-{
-    int32_t rc = -1;
-    mm_evt_paylod_repro_start_stop_t payload;
-    mm_channel_t * ch_obj =
-        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
-
-    if (NULL != ch_obj) {
-        pthread_mutex_lock(&ch_obj->ch_lock);
-        pthread_mutex_unlock(&my_obj->cam_lock);
-
-        memset(&payload, 0, sizeof(mm_evt_paylod_repro_start_stop_t));
-        payload.repro_isp_handle = repro_isp_handle;
-        payload.stream_id = stream_id;
-        rc = mm_channel_fsm_fn(ch_obj,
-                               MM_CHANNEL_EVT_START_REPRO_ISP,
-                               (void*)&payload,
-                               NULL);
-    } else {
-        pthread_mutex_unlock(&my_obj->cam_lock);
-        CDBG_ERROR("%s: no channel obj exist", __func__);
-    }
-
-    return rc;
-}
-
-int32_t mm_camera_reprocess(mm_camera_obj_t *my_obj,
-                            uint32_t ch_id,
-                            uint32_t repro_isp_handle,
-                            mm_camera_repro_data_t *repro_data)
-{
-    int32_t rc = -1;
-    mm_channel_t * ch_obj =
-        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
-    mm_evt_paylod_reprocess_t payload;
-
-    if (NULL != ch_obj) {
-        pthread_mutex_lock(&ch_obj->ch_lock);
-        pthread_mutex_unlock(&my_obj->cam_lock);
-
-        memset(&payload, 0, sizeof(mm_evt_paylod_reprocess_t));
-        payload.repro_isp_handle = repro_isp_handle;
-        payload.repro_data = repro_data;
-        rc = mm_channel_fsm_fn(ch_obj,
-                               MM_CHANNEL_EVT_ATTACH_STREAM_TO_REPRO_ISP,
-                               (void*)&payload,
-                               NULL);
-    } else {
-        pthread_mutex_unlock(&my_obj->cam_lock);
-        CDBG_ERROR("%s: no channel obj exist", __func__);
-    }
-
-    return rc;
-}
-
-int32_t mm_camera_stop_repro_isp(mm_camera_obj_t *my_obj,
-                                 uint32_t ch_id,
-                                 uint32_t repro_isp_handle,
-                                 uint32_t stream_id)
-{
-    int32_t rc = -1;
-    mm_evt_paylod_repro_start_stop_t payload;
-    mm_channel_t * ch_obj =
-        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
-
-    if (NULL != ch_obj) {
-        pthread_mutex_lock(&ch_obj->ch_lock);
-        pthread_mutex_unlock(&my_obj->cam_lock);
-
-        memset(&payload, 0, sizeof(mm_evt_paylod_repro_start_stop_t));
-        payload.repro_isp_handle = repro_isp_handle;
-        payload.stream_id = stream_id;
-        rc = mm_channel_fsm_fn(ch_obj,
-                               MM_CHANNEL_EVT_STOP_REPRO_ISP,
-                               (void*)&payload,
-                               NULL);
-    } else {
-        pthread_mutex_unlock(&my_obj->cam_lock);
-        CDBG_ERROR("%s: no channel obj exist", __func__);
-    }
-
-    return rc;
-}
-
-int32_t mm_camera_detach_stream_from_repro_isp(mm_camera_obj_t *my_obj,
-                                               uint32_t ch_id,
-                                               uint32_t repro_isp_handle,
-                                               uint32_t stream_id)
-{
-    int32_t rc = -1;
-    mm_channel_t * ch_obj =
-        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
-    mm_evt_paylod_stream_to_repro_isp_t payload;
-
-    if (NULL != ch_obj) {
-        pthread_mutex_lock(&ch_obj->ch_lock);
-        pthread_mutex_unlock(&my_obj->cam_lock);
-
-        memset(&payload, 0, sizeof(mm_evt_paylod_stream_to_repro_isp_t));
-        payload.repro_isp_handle = repro_isp_handle;
-        payload.stream_id = stream_id;
-        rc = mm_channel_fsm_fn(ch_obj,
-                               MM_CHANNEL_EVT_DETACH_STREAM_FROM_REPRO_ISP,
-                               (void*)&payload,
-                               NULL);
-    } else {
-        pthread_mutex_unlock(&my_obj->cam_lock);
-        CDBG_ERROR("%s: no channel obj exist", __func__);
-    }
-
-    return rc;
-}
-
-int32_t mm_camera_close_repro_isp(mm_camera_obj_t *my_obj,
-                                  uint32_t ch_id,
-                                  uint32_t repro_isp_handle)
-{
-    int32_t rc = -1;
-    mm_channel_t * ch_obj =
-        mm_camera_util_get_channel_by_handler(my_obj, ch_id);
-
-    if (NULL != ch_obj) {
-        pthread_mutex_lock(&ch_obj->ch_lock);
-        pthread_mutex_unlock(&my_obj->cam_lock);
-
-        rc = mm_channel_fsm_fn(ch_obj,
-                               MM_CHANNEL_EVT_CLOSE_REPRO_ISP,
-                               (void*)repro_isp_handle,
-                               NULL);
-    } else {
-        pthread_mutex_unlock(&my_obj->cam_lock);
-        CDBG_ERROR("%s: no channel obj exist", __func__);
-    }
-
-    return rc;
 }

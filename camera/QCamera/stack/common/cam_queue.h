@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -27,11 +27,22 @@
  *
  */
 
-#include <pthread.h>
-#include "mm_jpeg_dbg.h"
-#include "mm_jpeg.h"
+#include "cam_list.h"
 
-int32_t mm_jpeg_queue_init(mm_jpeg_queue_t* queue)
+#include <stdlib.h>
+
+typedef struct {
+    struct cam_list list;
+    void *data;
+} cam_node_t;
+
+typedef struct {
+    cam_node_t head; /* dummy head */
+    uint32_t size;
+    pthread_mutex_t lock;
+} cam_queue_t;
+
+static inline int32_t cam_queue_init(cam_queue_t *queue)
 {
     pthread_mutex_init(&queue->lock, NULL);
     cam_list_init(&queue->head.list);
@@ -39,16 +50,15 @@ int32_t mm_jpeg_queue_init(mm_jpeg_queue_t* queue)
     return 0;
 }
 
-int32_t mm_jpeg_queue_enq(mm_jpeg_queue_t* queue, void* data)
+static inline int32_t cam_queue_enq(cam_queue_t *queue, void *data)
 {
-    mm_jpeg_q_node_t* node =
-        (mm_jpeg_q_node_t *)malloc(sizeof(mm_jpeg_q_node_t));
+    cam_node_t *node =
+        (cam_node_t *)malloc(sizeof(cam_node_t));
     if (NULL == node) {
-        CDBG_ERROR("%s: No memory for mm_jpeg_q_node_t", __func__);
         return -1;
     }
 
-    memset(node, 0, sizeof(mm_jpeg_q_node_t));
+    memset(node, 0, sizeof(cam_node_t));
     node->data = data;
 
     pthread_mutex_lock(&queue->lock);
@@ -57,13 +67,12 @@ int32_t mm_jpeg_queue_enq(mm_jpeg_queue_t* queue, void* data)
     pthread_mutex_unlock(&queue->lock);
 
     return 0;
-
 }
 
-void* mm_jpeg_queue_deq(mm_jpeg_queue_t* queue)
+static inline void *cam_queue_deq(cam_queue_t *queue)
 {
-    mm_jpeg_q_node_t* node = NULL;
-    void* data = NULL;
+    cam_node_t *node = NULL;
+    void *data = NULL;
     struct cam_list *head = NULL;
     struct cam_list *pos = NULL;
 
@@ -71,7 +80,7 @@ void* mm_jpeg_queue_deq(mm_jpeg_queue_t* queue)
     head = &queue->head.list;
     pos = head->next;
     if (pos != head) {
-        node = member_of(pos, mm_jpeg_q_node_t, list);
+        node = member_of(pos, cam_node_t, list);
         cam_list_del_node(&node->list);
         queue->size--;
     }
@@ -85,29 +94,9 @@ void* mm_jpeg_queue_deq(mm_jpeg_queue_t* queue)
     return data;
 }
 
-uint32_t mm_jpeg_queue_get_size(mm_jpeg_queue_t* queue)
+static inline int32_t cam_queue_flush(cam_queue_t *queue)
 {
-    uint32_t size = 0;
-
-    pthread_mutex_lock(&queue->lock);
-    size = queue->size;
-    pthread_mutex_unlock(&queue->lock);
-
-    return size;
-
-}
-
-int32_t mm_jpeg_queue_deinit(mm_jpeg_queue_t* queue)
-{
-    mm_jpeg_queue_flush(queue);
-    pthread_mutex_destroy(&queue->lock);
-    return 0;
-}
-
-int32_t mm_jpeg_queue_flush(mm_jpeg_queue_t* queue)
-{
-    mm_jpeg_q_node_t* node = NULL;
-    void* data = NULL;
+    cam_node_t *node = NULL;
     struct cam_list *head = NULL;
     struct cam_list *pos = NULL;
 
@@ -116,40 +105,28 @@ int32_t mm_jpeg_queue_flush(mm_jpeg_queue_t* queue)
     pos = head->next;
 
     while(pos != head) {
-        node = member_of(pos, mm_jpeg_q_node_t, list);
+        node = member_of(pos, cam_node_t, list);
+        pos = pos->next;
         cam_list_del_node(&node->list);
         queue->size--;
 
+        /* TODO later to consider ptr inside data */
         /* for now we only assume there is no ptr inside data
          * so we free data directly */
         if (NULL != node->data) {
             free(node->data);
         }
         free(node);
-        pos = pos->next;
+
     }
     queue->size = 0;
     pthread_mutex_unlock(&queue->lock);
     return 0;
 }
 
-void* mm_jpeg_queue_peek(mm_jpeg_queue_t* queue)
+static inline int32_t cam_queue_deinit(cam_queue_t *queue)
 {
-    mm_jpeg_q_node_t* node = NULL;
-    void* data = NULL;
-    struct cam_list *head = NULL;
-    struct cam_list *pos = NULL;
-
-    pthread_mutex_lock(&queue->lock);
-    head = &queue->head.list;
-    pos = head->next;
-    if (pos != head) {
-        node = member_of(pos, mm_jpeg_q_node_t, list);
-    }
-    pthread_mutex_unlock(&queue->lock);
-
-    if (NULL != node) {
-        data = node->data;
-    }
-    return data;
+    cam_queue_flush(queue);
+    pthread_mutex_destroy(&queue->lock);
+    return 0;
 }

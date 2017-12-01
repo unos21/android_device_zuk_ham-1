@@ -27,57 +27,45 @@
  *
  */
 
-/* This file is a slave copy from /vendor/qcom/propreitary/mm-cammera/common,
- * Please do not modify it directly here. */
+#ifndef __MM_QCAMERA_DBG_H__
+#define __MM_QCAMERA_DBG_H__
 
-#ifndef __CAMLIST_H
-#define __CAMLIST_H
+//#define LOG_DEBUG 1
 
-#include <stddef.h>
+#ifndef LOG_DEBUG
+  #ifdef _ANDROID_
+    #undef LOG_NIDEBUG
+    #undef LOG_TAG
+    #define LOG_NIDEBUG 0
+    #define LOG_TAG "mm-camera-test"
+    #include <utils/Log.h>
+  #else
+    #include <stdio.h>
+    #define ALOGE CDBG
+  #endif
+  #undef CDBG
+  #define CDBG(fmt, args...) do{}while(0)
+  #define CDBG_ERROR(fmt, args...) ALOGE(fmt, ##args)
+#else
+  #ifdef _ANDROID_
+    #undef LOG_NIDEBUG
+    #undef LOG_TAG
+    #define LOG_NIDEBUG 0
+    #define LOG_TAG "mm-camera-test"
+    #include <utils/Log.h>
+    #define CDBG(fmt, args...) ALOGE(fmt, ##args)
+  #else
+    #include <stdio.h>
+    #define CDBG(fmt, args...) fprintf(stderr, fmt, ##args)
+    #define ALOGE(fmt, args...) fprintf(stderr, fmt, ##args)
+  #endif
+#endif
 
-#define member_of(ptr, type, member) ({ \
-  const __typeof__(((type *)0)->member) *__mptr = (ptr); \
-  (type *)((char *)__mptr - offsetof(type,member));})
-
-struct cam_list {
-  struct cam_list *next, *prev;
-};
-
-static inline void cam_list_init(struct cam_list *ptr)
-{
-  ptr->next = ptr;
-  ptr->prev = ptr;
-}
-
-static inline void cam_list_add_tail_node(struct cam_list *item,
-  struct cam_list *head)
-{
-  struct cam_list *prev = head->prev;
-
-  head->prev = item;
-  item->next = head;
-  item->prev = prev;
-  prev->next = item;
-}
-
-static inline void cam_list_insert_before_node(struct cam_list *item,
-  struct cam_list *node)
-{
-  item->next = node;
-  item->prev = node->prev;
-  item->prev->next = item;
-  node->prev = item;
-}
-
-static inline void cam_list_del_node(struct cam_list *ptr)
-{
-  struct cam_list *prev = ptr->prev;
-  struct cam_list *next = ptr->next;
-
-  next->prev = ptr->prev;
-  prev->next = ptr->next;
-  ptr->next = ptr;
-  ptr->prev = ptr;
-}
-
-#endif /* __CAMLIST_H */
+#ifdef _ANDROID_
+  #define CDBG_HIGH(fmt, args...)  ALOGE(fmt, ##args)
+  #define CDBG_ERROR(fmt, args...)  ALOGE(fmt, ##args)
+#else
+  #define CDBG_HIGH(fmt, args...) fprintf(stderr, fmt, ##args)
+  #define CDBG_ERROR(fmt, args...) fprintf(stderr, fmt, ##args)
+#endif
+#endif /* __MM_QCAMERA_DBG_H__ */

@@ -27,57 +27,59 @@
  *
  */
 
-/* This file is a slave copy from /vendor/qcom/propreitary/mm-cammera/common,
- * Please do not modify it directly here. */
+#ifndef __QCAMERA_SEMAPHORE_H__
+#define __QCAMERA_SEMAPHORE_H__
 
-#ifndef __CAMLIST_H
-#define __CAMLIST_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-#include <stddef.h>
+/* Implement semaphore with mutex and conditional variable.
+ * Reason being, POSIX semaphore on Android are not used or
+ * well tested.
+ */
 
-#define member_of(ptr, type, member) ({ \
-  const __typeof__(((type *)0)->member) *__mptr = (ptr); \
-  (type *)((char *)__mptr - offsetof(type,member));})
+typedef struct {
+    int val;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+} cam_semaphore_t;
 
-struct cam_list {
-  struct cam_list *next, *prev;
-};
-
-static inline void cam_list_init(struct cam_list *ptr)
+static inline void cam_sem_init(cam_semaphore_t *s, int n)
 {
-  ptr->next = ptr;
-  ptr->prev = ptr;
+    pthread_mutex_init(&(s->mutex), NULL);
+    pthread_cond_init(&(s->cond), NULL);
+    s->val = n;
 }
 
-static inline void cam_list_add_tail_node(struct cam_list *item,
-  struct cam_list *head)
+static inline void cam_sem_post(cam_semaphore_t *s)
 {
-  struct cam_list *prev = head->prev;
-
-  head->prev = item;
-  item->next = head;
-  item->prev = prev;
-  prev->next = item;
+    pthread_mutex_lock(&(s->mutex));
+    s->val++;
+    pthread_cond_signal(&(s->cond));
+    pthread_mutex_unlock(&(s->mutex));
 }
 
-static inline void cam_list_insert_before_node(struct cam_list *item,
-  struct cam_list *node)
+static inline int cam_sem_wait(cam_semaphore_t *s)
 {
-  item->next = node;
-  item->prev = node->prev;
-  item->prev->next = item;
-  node->prev = item;
+    int rc = 0;
+    pthread_mutex_lock(&(s->mutex));
+    while (s->val == 0)
+        rc = pthread_cond_wait(&(s->cond), &(s->mutex));
+    s->val--;
+    pthread_mutex_unlock(&(s->mutex));
+    return rc;
 }
 
-static inline void cam_list_del_node(struct cam_list *ptr)
+static inline void cam_sem_destroy(cam_semaphore_t *s)
 {
-  struct cam_list *prev = ptr->prev;
-  struct cam_list *next = ptr->next;
-
-  next->prev = ptr->prev;
-  prev->next = ptr->next;
-  ptr->next = ptr;
-  ptr->prev = ptr;
+    pthread_mutex_destroy(&(s->mutex));
+    pthread_cond_destroy(&(s->cond));
+    s->val = 0;
 }
 
-#endif /* __CAMLIST_H */
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* __QCAMERA_SEMAPHORE_H__ */
