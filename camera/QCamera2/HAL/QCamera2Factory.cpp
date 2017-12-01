@@ -33,7 +33,6 @@
 #include <stdlib.h>
 #include <utils/Errors.h>
 #include <hardware/camera.h>
-#include <sensor/SensorManager.h>
 
 #include "QCamera2Factory.h"
 
@@ -130,7 +129,7 @@ int QCamera2Factory::getNumberOfCameras()
 int QCamera2Factory::getCameraInfo(int camera_id, struct camera_info *info)
 {
     int rc;
-    ALOGV("%s: E, camera_id = %d", __func__, camera_id);
+    ALOGE("%s: E, camera_id = %d", __func__, camera_id);
 
     if (!mNumOfCameras || camera_id >= mNumOfCameras || !info) {
         return INVALID_OPERATION;
@@ -203,7 +202,7 @@ int QCamera2Factory::camera_device_open(
 }
 
 struct hw_module_methods_t QCamera2Factory::mModuleMethods = {
-    open: QCamera2Factory::camera_device_open,
+    .open = QCamera2Factory::camera_device_open,
 };
 
 }; // namespace qcamera

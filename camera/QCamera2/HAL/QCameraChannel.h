@@ -55,9 +55,7 @@ public:
                               uint8_t minStreamBufnum,
                               cam_padding_info_t *paddingInfo,
                               stream_cb_routine stream_cb,
-                              void *userdata,
-                              bool bDynAllocBuf,
-                              bool bDeffAlloc = false);
+                              void *userdata);
     virtual int32_t start();
     virtual int32_t stop();
     virtual int32_t bufDone(mm_camera_super_buf_t *recvd_frame);
@@ -68,14 +66,11 @@ public:
     uint8_t getNumOfStreams() const {return m_numStreams;};
     QCameraStream *getStreamByIndex(uint8_t index);
     QCameraStream *getStreamByServerID(uint32_t serverID);
-    int32_t UpdateStreamBasedParameters(QCameraParameters &param);
-    void deleteChannel();
 
 protected:
     uint32_t m_camHandle;
     mm_camera_ops_t *m_camOps;
     bool m_bIsActive;
-    bool m_bAllowDynBufAlloc; // if buf allocation can be in two steps
 
     uint32_t m_handle;
     uint8_t m_numStreams;
@@ -94,7 +89,6 @@ public:
     virtual ~QCameraPicChannel();
     int32_t takePicture(uint8_t num_of_snapshot);
     int32_t cancelPicture();
-    int32_t startAdvancedCapture(mm_camera_advanced_capture_t type);
 };
 
 // video channel class
@@ -120,10 +114,7 @@ public:
                                        cam_pp_feature_config_t &config,
                                        QCameraChannel *pSrcChannel,
                                        uint8_t minStreamBufNum,
-                                       uint32_t burstNum,
-                                       cam_padding_info_t *paddingInfo,
-                                       QCameraParameters &param,
-                                       bool contStream);
+                                       cam_padding_info_t *paddingInfo);
     // online reprocess
     int32_t doReprocess(mm_camera_super_buf_t *frame);
     // offline reprocess

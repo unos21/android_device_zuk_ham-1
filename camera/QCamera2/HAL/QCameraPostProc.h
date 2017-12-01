@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundataion. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundataion. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -36,8 +36,6 @@ extern "C" {
 }
 #include "QCamera2HWI.h"
 
-#define MAX_JPEG_BURST 2
-
 namespace qcamera {
 
 class QCameraExif;
@@ -47,11 +45,6 @@ typedef struct {
     uint32_t client_hdl;             // handle of jpeg client (obtained when open jpeg)
     mm_camera_super_buf_t *src_frame;// source frame (need to be returned back to kernel after done)
     mm_camera_super_buf_t *src_reproc_frame; // original source frame for reproc if not NULL
-    cam_metadata_info_t * metadata;  // source frame metadata
-    bool reproc_frame_release;       // false release original buffer, true don't release it
-    mm_camera_buf_def_t *src_reproc_bufs;
-    mm_camera_buf_def_t *src_bufs;
-    QCameraExif *pJpegExifObj;
 } qcamera_jpeg_data_t;
 
 typedef struct {
@@ -72,8 +65,6 @@ typedef struct {
 typedef struct {
     camera_memory_t *        data;     // ptr to data memory struct
     mm_camera_super_buf_t *  frame;    // ptr to frame
-    QCameraMemory *          streamBufs; //ptr to stream buffers
-    bool                     unlinkFile; // unlink any stored buffers on error
 } qcamera_release_data_t;
 
 typedef struct {
@@ -84,7 +75,7 @@ typedef struct {
     qcamera_release_data_t   release_data; // any data needs to be release after notify
 } qcamera_data_argm_t;
 
-#define MAX_EXIF_TABLE_ENTRIES 14
+#define MAX_EXIF_TABLE_ENTRIES 17
 class QCameraExif
 {
 public:
@@ -118,10 +109,6 @@ public:
     int32_t processPPData(mm_camera_super_buf_t *frame);
     int32_t processJpegEvt(qcamera_jpeg_evt_payload_t *evt);
     int32_t getJpegPaddingReq(cam_padding_info_t &padding_info);
-    QCameraReprocessChannel * getReprocChannel() {return m_pReprocChannel;};
-    bool getMultipleStages() { return mMultipleStages; };
-    void setMultipleStages(bool stages) { mMultipleStages = stages; };
-    inline bool getJpegMemOpt() {return mJpegMemOpt;}
 
 private:
     int32_t sendDataNotify(int32_t msg_type,
@@ -138,20 +125,9 @@ private:
                                   QCameraStream *thumb_stream);
     int32_t encodeData(qcamera_jpeg_data_t *jpeg_job_data,
                        uint8_t &needNewSess);
-    int32_t queryStreams(QCameraStream **main,
-            QCameraStream **thumb,
-            mm_camera_buf_def_t **main_image,
-            mm_camera_buf_def_t **thumb_image,
-            mm_camera_super_buf_t *main_frame,
-            mm_camera_super_buf_t *reproc_frame);
-    int32_t syncStreamParams(mm_camera_super_buf_t *frame);
     void releaseSuperBuf(mm_camera_super_buf_t *super_buf);
-    static void releaseNotifyData(void *user_data,
-                                  void *cookie,
-                                  int32_t cb_status);
+    static void releaseNotifyData(void *user_data, void *cookie);
     void releaseJpegJobData(qcamera_jpeg_data_t *job);
-    static void releaseSaveJobData(void *data, void *user_data);
-    static void releaseRawData(void *data, void *user_data);
     int32_t processRawImageImpl(mm_camera_super_buf_t *recvd_frame);
 
     static void releaseJpegData(void *data, void *user_data);
@@ -159,11 +135,6 @@ private:
     static void releaseOngoingPPData(void *data, void *user_data);
 
     static void *dataProcessRoutine(void *data);
-    static void *dataSaveRoutine(void *data);
-
-    int32_t setYUVFrameInfo(mm_camera_super_buf_t *recvd_frame);
-    static bool matchJobId(void *data, void *user_data, void *match_data);
-    static int getJpegMemory(omx_jpeg_ouput_buf_t *out_buf);
 
 private:
     QCamera2HardwareInterface *m_parent;
@@ -173,29 +144,17 @@ private:
     uint32_t                   mJpegClientHandle;
     uint32_t                   mJpegSessionId;
 
-    void *                     m_pJpegOutputMem[MM_JPEG_MAX_BUF];
+    QCameraStreamMemory *      m_pJpegOutputMem;
     QCameraExif *              m_pJpegExifObj;
     int8_t                     m_bThumbnailNeeded;
     QCameraReprocessChannel *  m_pReprocChannel;
-
-    int8_t                     m_bInited; // if postproc is inited
 
     QCameraQueue m_inputPPQ;            // input queue for postproc
     QCameraQueue m_ongoingPPQ;          // ongoing postproc queue
     QCameraQueue m_inputJpegQ;          // input jpeg job queue
     QCameraQueue m_ongoingJpegQ;        // ongoing jpeg job queue
     QCameraQueue m_inputRawQ;           // input raw job queue
-    QCameraQueue m_inputSaveQ;          // input save job queue
     QCameraCmdThread m_dataProcTh;      // thread for data processing
-    QCameraCmdThread m_saveProcTh;      // thread for storing buffers
-    uint32_t mSaveFrmCnt;               // save frame counter
-    static const char *STORE_LOCATION;  // path for storing buffers
-    bool mUseSaveProc;                  // use store thread
-    bool mUseJpegBurst;                 // use jpeg burst encoding mode
-    bool mJpegMemOpt;
-    uint8_t mNewJpegSessionNeeded;
-    bool mMultipleStages;               // multiple stages are present
-    uint32_t   m_JpegOutputMemCount;
 };
 
 }; // namespace qcamera
