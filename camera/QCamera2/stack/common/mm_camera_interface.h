@@ -66,7 +66,6 @@ typedef struct {
     uint32_t stream_id;
     cam_stream_type_t stream_type;
     int8_t buf_idx;
-    uint8_t is_uv_subsampled;
     struct timespec ts;
     uint32_t frame_idx;
     int8_t num_planes;
@@ -236,23 +235,6 @@ typedef enum {
     MM_CAMERA_SUPER_BUF_PRIORITY_MAX
 } mm_camera_super_buf_priority_t;
 
-/** mm_camera_advanced_capture_t: enum for advanced capture type.
-*    @MM_CAMERA_AF_BRACKETING :
-*       to enable AF Bracketig.
-*    @MM_CAMERA_AE_BRACKETING :
-*       to enable AF Bracketing.
-*    @MM_CAMERA_FLASH_BRACKETING :
-*       to enable Flash Bracketing.
-*    @MM_CAMERA_ZOOM_1X :
-*       to enable zoom 1x capture request
-**/
-typedef enum {
-   MM_CAMERA_AF_BRACKETING = 0,
-   MM_CAMERA_AE_BRACKETING,
-   MM_CAMERA_FLASH_BRACKETING,
-   MM_CAMERA_ZOOM_1X,
-} mm_camera_advanced_capture_t;
-
 /** mm_camera_channel_attr_t: structure for defining channel
 *                             attributes
 *    @notify_mode : notify mode: burst or continuous
@@ -346,7 +328,7 @@ typedef struct {
      *       buf before this call
      **/
     int32_t (*set_parms) (uint32_t camera_handle,
-                          void *parms);
+                          parm_buffer_t *parms);
 
     /** get_parms: fucntion definition for querying camera
      *             based parameters from server
@@ -360,7 +342,7 @@ typedef struct {
      *       the buf before this call
      **/
     int32_t (*get_parms) (uint32_t camera_handle,
-                          void *parms);
+                          parm_buffer_t *parms);
 
     /** do_auto_focus: fucntion definition for performing auto focus
      *    @camera_handle : camer handler
@@ -390,6 +372,22 @@ typedef struct {
      **/
     int32_t (*prepare_snapshot) (uint32_t camera_handle,
                                  int32_t do_af_flag);
+
+    /** start_zsl_snapshot: function definition for starting
+     *                    zsl snapshot.
+     *    @camera_handle : camer handler
+     *  Return value: 0 -- success
+     *                -1 -- failure
+     **/
+    int32_t (*start_zsl_snapshot) (uint32_t camera_handle);
+
+    /** stop_zsl_snapshot: function definition for stopping
+     *                    zsl snapshot.
+     *    @camera_handle : camer handler
+     *  Return value: 0 -- success
+     *                -1 -- failure
+     **/
+    int32_t (*stop_zsl_snapshot) (uint32_t camera_handle);
 
     /** add_channel: fucntion definition for adding a channel
      *    @camera_handle : camer handler
@@ -622,22 +620,6 @@ typedef struct {
     int32_t (*configure_notify_mode) (uint32_t camera_handle,
                                       uint32_t ch_id,
                                       mm_camera_super_buf_notify_mode_t notify_mode);
-
-     /** process_advanced_capture: function definition for start/stop advanced capture
-     *                    for snapshot.
-     *    @camera_handle : camera handle
-     *    @type :  advanced capture type.
-     *    @ch_id : channel handler
-     *    @start_flag    : flag indicating if advanced capture needs to be done
-     *                     0 -- stop advanced capture
-     *                     1 -- start advanced capture
-     *  Return value: 0 -- success
-     *                -1 -- failure
-     **/
-     int32_t (*process_advanced_capture) (uint32_t camera_handle,
-                                          mm_camera_advanced_capture_t type,
-                                          uint32_t ch_id,
-                                          int8_t start_flag);
 } mm_camera_ops_t;
 
 /** mm_camera_vtbl_t: virtual table for camera operations
@@ -655,36 +637,26 @@ uint8_t get_num_of_cameras();
 
 /* return reference pointer of camera vtbl */
 mm_camera_vtbl_t * camera_open(uint8_t camera_idx);
-struct camera_info *get_cam_info(int camera_id);
 
 /* helper functions */
 int32_t mm_stream_calc_offset_preview(cam_format_t fmt,
-        cam_dimension_t *dim,
-        cam_stream_buf_plane_info_t *buf_planes);
-
-int32_t mm_stream_calc_offset_post_view(cam_format_t fmt,
-        cam_dimension_t *dim,
-        cam_stream_buf_plane_info_t *buf_planes);
-
+                                      cam_dimension_t *dim,
+                                      cam_stream_buf_plane_info_t *buf_planes);
 int32_t mm_stream_calc_offset_snapshot(cam_format_t fmt,
-        cam_dimension_t *dim,
-        cam_padding_info_t *padding,
-        cam_stream_buf_plane_info_t *buf_planes);
-
+                                       cam_dimension_t *dim,
+                                       cam_padding_info_t *padding,
+                                       cam_stream_buf_plane_info_t *buf_planes);
 int32_t mm_stream_calc_offset_raw(cam_format_t fmt,
-        cam_dimension_t *dim,
-        cam_padding_info_t *padding,
-        cam_stream_buf_plane_info_t *buf_planes);
-
+                                  cam_dimension_t *dim,
+                                  cam_padding_info_t *padding,
+                                  cam_stream_buf_plane_info_t *buf_planes);
 int32_t mm_stream_calc_offset_video(cam_dimension_t *dim,
-        cam_stream_buf_plane_info_t *buf_planes);
-
+                                    cam_stream_buf_plane_info_t *buf_planes);
 int32_t mm_stream_calc_offset_metadata(cam_dimension_t *dim,
-        cam_padding_info_t *padding,
-        cam_stream_buf_plane_info_t *buf_planes);
-
+                                       cam_padding_info_t *padding,
+                                       cam_stream_buf_plane_info_t *buf_planes);
 int32_t mm_stream_calc_offset_postproc(cam_stream_info_t *stream_info,
-        cam_padding_info_t *padding,
-        cam_stream_buf_plane_info_t *buf_planes);
+                                       cam_padding_info_t *padding,
+                                       cam_stream_buf_plane_info_t *buf_planes);
 
 #endif /*__MM_CAMERA_INTERFACE_H__*/

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -30,8 +30,6 @@
 #ifndef __MM_JPEG_DBG_H__
 #define __MM_JPEG_DBG_H__
 
-#define LOG_DEBUG
-
 #ifndef LOG_DEBUG
   #ifdef _ANDROID_
     #undef LOG_NIDEBUG
@@ -61,7 +59,7 @@
 #endif
 
 #ifdef _ANDROID_
-  #define CDBG_HIGH(fmt, args...)  ALOGE(fmt, ##args)
+  #define CDBG_HIGH(fmt, args...)  ALOGI(fmt, ##args)
   #define CDBG_ERROR(fmt, args...)  ALOGE(fmt, ##args)
 #else
   #define CDBG_HIGH(fmt, args...) fprintf(stderr, fmt, ##args)
